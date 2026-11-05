@@ -1,0 +1,14 @@
+# Rust 编译产物
+/target/
+
+# 本地凭据与运行文件
+.env
+.env.*
+!.env.example
+*.log
+/config.local.*
+
+# 编辑器和操作系统
+.DS_Store
+/.idea/
+/.vscode/
