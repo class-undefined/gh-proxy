@@ -137,3 +137,10 @@ Rust 31 个测试、前端 9 个测试、格式、Clippy 和 release 构建通�
 推送与 Cargo.toml 一致的 v0.1.0 tag 后，[Release workflow](https://github.com/class-undefined/gh-proxy/actions/runs/41973208767) 全部通过，包括版本校验、复用六平台 CI、产物汇总、SHA256SUMS 生成、草稿上传清单核对和公开发布。[v0.1.0](https://github.com/class-undefined/gh-proxy/releases/tag/v0.1.0) 为正式版本，包含六个压缩包及一个校验文件。
 
 发布后重新下载全部七个资产，逐一验证 SHA-256、压缩包仅含二进制，以及 ELF、Mach-O、PE 头中的 x86_64 / ARM64 架构标识。另执行下载后的 macOS ARM64 二进制，版本为 gh-proxy 0.1.0，connect --help 正常。临时下载目录随后清理。运行配置与凭据未加入提交或发布包。
+
+
+## 2026-11-05：旧版 Linux 静态部署
+
+新增手动 Portable Linux workflow，构建 musl 自包含二进制。首轮测试暴露系统 musl-gcc 最终链接产生的启动兼容问题，改用 Rust 自带 rust-lld 与自包含运行时，并在构建前执行最小启动检查。[修正后的 x86_64 musl 构建](https://github.com/class-undefined/gh-proxy/actions/runs/41983222055) 全部通过：43 个 Rust 测试、release 构建、命令运行检查、ELF 无动态解释器或共享库依赖检查，以及 SHA256SUMS 生成。[同提交常规 CI](https://github.com/class-undefined/gh-proxy/actions/runs/41983220310) 也全部通过。
+
+下载产物后核对源提交、SHA-256、ELF x86_64 架构及无动态解释器，再上传至目标共享文件系统。在实际 CentOS 7、Linux 3.10、glibc 2.17 环境完成版本/帮助、配置检查、临时 HTTP 存活检查、未配置出站时的 503 与固定错误码、私有管理密钥生成和权限、SOCKS 目标拒绝及 SIGTERM 正常退出。验收完成后以同文件系统原子重命名安装，二进制为 gh-proxy 0.1.0、root:root、0755；安装文件与 CI 校验和一致。临时配置、密钥、进程和上传目录均已清理。没有创建常驻服务。

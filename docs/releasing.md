@@ -92,4 +92,4 @@ chmod 755 gh-proxy
 ./gh-proxy --version
 ```
 
-该流程运行对应 target 的 Rust 测试与 release 构建，检查 ELF 不含动态解释器及共享库依赖，提供二进制、SHA256SUMS 和源码版本信息，artifact 保留 30 天。安装到旧系统前仍应在目标内核上执行运行检查。此构建入口不修改已有正式 Release 的资产。
+该流程使用 Rust 自带的 rust-lld 和自包含 C 运行时执行最终链接，musl-gcc 仅编译 C 依赖，并先运行最小程序检查启动。这样规避 [musl-gcc 包装器与 static PIE 的已知启动兼容问题](https://github.com/rust-lang/rust/issues/95926)。随后运行对应 target 的 Rust 测试与 release 构建，检查 ELF 不含动态解释器及共享库依赖，提供二进制、SHA256SUMS 和源码版本信息，artifact 保留 30 天。安装到旧系统前仍应在目标内核上执行运行检查。此构建入口不修改已有正式 Release 的资产。
