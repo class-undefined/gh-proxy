@@ -1,0 +1,32 @@
+# Copy outside the repository, review all policies, and set real deployment values.
+http_listen = "127.0.0.1:8080"
+socks_listen = "127.0.0.1:1080"
+public_url = "http://127.0.0.1:8080"
+clients = ["127.0.0.1/32", "::1/128"]
+direct = false
+max_connections = 128
+timeout_seconds = 300
+
+# For externally exposed HTTP, TLS is mandatory:
+# [tls]
+# cert = "/etc/gh-proxy/fullchain.pem"
+# key = "/etc/gh-proxy/private.key"
+
+[[ssh_targets]]
+host = "github.com"
+port = 22
+
+[[ssh_targets]]
+host = "ssh.github.com"
+port = 443
+
+[[repositories]]
+name = "class-undefined/gh-proxy"
+write = false
+[repositories.release]
+query = true
+create = false
+update = false
+upload = false
+download = true
+delete = false
