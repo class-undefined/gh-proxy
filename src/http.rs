@@ -280,7 +280,21 @@ async fn handle(
         .get("accept")
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.to_ascii_lowercase().contains("application/octet-stream"));
-    let route = match policy::github(&app.config, request.method(), request.uri(), binary) {
+    // HTTP/2 reconstructs URI scheme/authority from mandatory pseudo-headers.
+    // Only HTTP/1 absolute-form is a proxy request; all upstream origins stay fixed.
+    let policy_uri = if request.version() == axum::http::Version::HTTP_2 {
+        match request
+            .uri()
+            .path_and_query()
+            .map(|p| p.as_str().parse::<axum::http::Uri>())
+        {
+            Some(Ok(uri)) => uri,
+            _ => return StatusCode::FORBIDDEN.into_response(),
+        }
+    } else {
+        request.uri().clone()
+    };
+    let route = match policy::github(&app.config, request.method(), &policy_uri, binary) {
         Ok(route) => route,
         Err(_) => {
             tracing::warn!(request_id = id, entry = "http", result = "policy_denied");
@@ -344,6 +358,21 @@ mod tests {
             .status(),
             StatusCode::BAD_GATEWAY
         );
+    }
+    #[tokio::test]
+    async fn http2_pseudo_headers_are_not_absolute_proxy_requests() {
+        let mut request = Request::builder().version(axum::http::Version::HTTP_2)
+            .uri("https://gateway.example/class-undefined/gh-proxy.git/info/refs?service=git-upload-pack")
+            .body(Body::empty()).unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()));
+        assert_eq!(
+            app().router().oneshot(request).await.unwrap().status(),
+            StatusCode::BAD_GATEWAY
+        );
+        let response = call("127.0.0.1:1234","https://gateway.example/class-undefined/gh-proxy.git/info/refs?service=git-upload-pack").await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
     #[test]
     fn rewrite_release_links_not_user_content() {
