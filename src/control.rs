@@ -7,6 +7,7 @@ use anyhow::{Context, Result, ensure};
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     io::Write,
     net::IpAddr,
     path::{Path, PathBuf},
@@ -65,6 +66,18 @@ pub struct Document {
     pub revision: u64,
     pub settings: Settings,
     pub proxy_credentials: Vec<String>,
+    pub inherited_proxies: BTreeMap<String, bool>,
+}
+fn inherited_proxies(get: impl Fn(&str) -> Option<String>) -> BTreeMap<String, bool> {
+    ["http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+        .into_iter()
+        .map(|key| {
+            let present = get(&key.to_ascii_uppercase())
+                .or_else(|| get(key))
+                .is_some_and(|v| !v.is_empty());
+            (key.into(), present)
+        })
+        .collect()
 }
 impl Settings {
     fn from_config(c: &Config) -> Self {
@@ -171,6 +184,7 @@ impl Control {
             revision: store.revision,
             settings,
             proxy_credentials,
+            inherited_proxies: inherited_proxies(|key| std::env::var(key).ok()),
         })
     }
     pub async fn save(&self, mut update: Update, peer: IpAddr) -> Result<(), SaveError> {
@@ -296,6 +310,17 @@ fn admin_token(config: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inherited_proxy_presence_respects_empty_uppercase_without_exposing_values() {
+        let values = inherited_proxies(|key| match key {
+            "HTTPS_PROXY" => Some(String::new()),
+            "https_proxy" | "ALL_PROXY" => Some("socks5h://user:secret@fixture:1080".into()),
+            _ => None,
+        });
+        assert!(!values["https_proxy"]);
+        assert!(values["all_proxy"]);
+        assert!(!serde_json::to_string(&values).unwrap().contains("secret"));
+    }
     fn fixture() -> (tempfile::TempDir, Arc<Control>) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");

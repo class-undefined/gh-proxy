@@ -14,6 +14,17 @@ export function proxyMode(value) {
 export function proxyValue(mode, value) {
   return mode === "inherit" ? null : mode === "disabled" ? "" : value.trim();
 }
+export function proxyPlaceholder(key, mode, inherited = {}) {
+  const variable = key.toUpperCase();
+  if (mode === "inherit")
+    return inherited[key] ? `已由 ${variable} 提供` : `未设置 ${variable}`;
+  if (mode === "disabled") return "已停用";
+  return key === "no_proxy"
+    ? "localhost,127.0.0.1"
+    : key === "all_proxy"
+      ? "socks5h://127.0.0.1:7890"
+      : "http://127.0.0.1:7890";
+}
 export function parseClients(value) {
   return value
     .split(/[\n,]+/)

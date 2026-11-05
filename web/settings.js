@@ -3,6 +3,7 @@ import {
   PROXY_FIELDS,
   proxyMode,
   proxyValue,
+  proxyPlaceholder,
   parseClients,
   blankRepository,
   validateSettings,
@@ -107,12 +108,11 @@ function proxies() {
     const title = el("label", "", label);
     const input = el("input");
     input.id = `proxy-${key}`;
-    input.value = state.draft.upstream[key] || "";
+    let customValue = state.draft.upstream[key] || "";
+    input.value = customValue;
     input.autocomplete = "off";
     input.spellcheck = false;
     input.setAttribute("aria-label", `${label} 代理配置`);
-    input.placeholder =
-      key === "no_proxy" ? "localhost,127.0.0.1" : "http://127.0.0.1:7890";
     title.htmlFor = input.id;
     const mode = el("select");
     mode.setAttribute("aria-label", `${label} 配置来源`);
@@ -126,13 +126,17 @@ function proxies() {
       mode.append(option);
     }
     mode.value = proxyMode(state.draft.upstream[key]);
+    input.placeholder = proxyPlaceholder(key, mode.value, state.document.inherited_proxies);
     input.disabled = mode.value !== "custom";
     mode.addEventListener("change", () => {
+      input.value = mode.value === "custom" ? customValue : "";
       input.disabled = mode.value !== "custom";
+      input.placeholder = proxyPlaceholder(key, mode.value, state.document.inherited_proxies);
       state.draft.upstream[key] = proxyValue(mode.value, input.value);
       dirty();
     });
     input.addEventListener("input", () => {
+      customValue = input.value;
       state.draft.upstream[key] = proxyValue(mode.value, input.value);
       dirty();
     });

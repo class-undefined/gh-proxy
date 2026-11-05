@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   proxyMode,
   proxyValue,
+  proxyPlaceholder,
   parseClients,
   blankRepository,
   validateSettings,
@@ -13,6 +14,15 @@ test("proxy source distinguishes inheritance, disabled, and explicit values", ()
   assert.equal(proxyMode("http://localhost:9"), "custom");
   assert.equal(proxyValue("inherit", "old"), null);
   assert.equal(proxyValue("disabled", "old"), "");
+  assert.equal(
+    proxyPlaceholder("https_proxy", "inherit", {}),
+    "未设置 HTTPS_PROXY",
+  );
+  assert.equal(
+    proxyPlaceholder("all_proxy", "inherit", { all_proxy: true }),
+    "已由 ALL_PROXY 提供",
+  );
+  assert.match(proxyPlaceholder("all_proxy", "custom"), /^socks5h:/);
   assert.equal(
     proxyValue("custom", " http://localhost:9 "),
     "http://localhost:9",
