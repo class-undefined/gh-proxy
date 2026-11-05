@@ -43,7 +43,7 @@ test("read-only Git commands omit pushes and point at the configured gateway", (
 test("SSH keeps the original repository address and handles the 443 target", () => {
   assert.match(
     buildCommands(status, read, "ssh").command,
-    /connect-proxy -S gateway.example:1080 %h %p/,
+    /gh-proxy connect --socks 'gateway.example:1080' %h %p/,
   );
   assert.match(
     buildCommands(status, read, "ssh").command,

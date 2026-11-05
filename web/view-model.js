@@ -70,7 +70,7 @@ export function buildCommands(status, repository, protocol) {
         ? ["    HostName ssh.github.com", "    Port 443"]
         : []),
       "    User git",
-      `    ProxyCommand connect-proxy -S ${hostname}:${status.socks_port} %h %p`,
+      `    ProxyCommand gh-proxy connect --socks ${shellQuote(`${hostname}:${status.socks_port}`)} %h %p`,
       "",
       "# 沿用原有 GitHub SSH 地址",
       `git clone ${shellQuote(`git@github.com:${name}.git`)}`,
@@ -79,7 +79,7 @@ export function buildCommands(status, repository, protocol) {
       title: "CLIENT / SSH",
       command: settings.join("\n"),
       description:
-        "安装 connect-proxy，并添加 SSH 配置；GitHub 继续验证你的现有公钥。",
+        "客户端安装 gh-proxy 并添加 SSH 配置；GitHub 继续验证你的现有公钥。",
       warning: status.ssh_ready
         ? "SSH 仓库权限由 GitHub 决定，不受 HTTP 仓库白名单限制。"
         : "SSH 出站尚未配置，请先检查 ALL_PROXY 或直连策略。",
