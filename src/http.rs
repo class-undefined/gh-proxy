@@ -24,6 +24,7 @@ use tokio::sync::Semaphore;
 
 #[derive(Clone)]
 pub struct App {
+    control: Arc<crate::control::Control>,
     config: Arc<Config>,
     egress: Arc<Egress>,
     slots: Arc<Semaphore>,
@@ -32,10 +33,15 @@ pub struct App {
 }
 impl App {
     pub fn new(config: Arc<Config>, egress: Arc<Egress>) -> Self {
+        Self::managed(crate::control::Control::readonly(config, egress))
+    }
+    pub fn managed(control: Arc<crate::control::Control>) -> Self {
+        let snapshot = control.snapshot();
         Self {
-            slots: Arc::new(Semaphore::new(config.max_connections)),
-            config,
-            egress,
+            control,
+            config: snapshot.config.clone(),
+            egress: snapshot.egress.clone(),
+            slots: snapshot.http_slots.clone(),
             runtime: Arc::new(crate::web::Runtime::new()),
             sequence: Arc::new(AtomicU64::new(1)),
         }
@@ -265,14 +271,21 @@ async fn forward(app: &App, route: &Route, request: Request) -> Result<Response>
     Ok(out)
 }
 async fn handle(
-    State(app): State<App>,
+    State(mut app): State<App>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     request: Request,
 ) -> Response {
+    let current = app.control.snapshot();
+    app.config = current.config.clone();
+    app.egress = current.egress.clone();
+    app.slots = current.http_slots.clone();
     let id = app.sequence.fetch_add(1, Ordering::Relaxed);
     let start = Instant::now();
     if !app.config.allows_client(peer.ip()) {
         return (StatusCode::FORBIDDEN, "client denied\n").into_response();
+    }
+    if request.uri().path() == "/_ui/config" {
+        return crate::web::manage(request, peer.ip(), &app.control).await;
     }
     if let Some(response) = crate::web::respond(
         request.uri().path(),
@@ -290,6 +303,7 @@ async fn handle(
         &app.config,
         &app.egress,
         &app.runtime,
+        app.control.enabled(),
     ) {
         return response;
     }

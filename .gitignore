@@ -12,3 +12,6 @@
 .DS_Store
 /.idea/
 /.vscode/
+
+# Console administrator keys
+*.admin-token

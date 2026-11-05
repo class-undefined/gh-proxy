@@ -40,10 +40,7 @@ async fn main() -> Result<()> {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let args = Args::parse();
     let config = Arc::new(Config::load(&args.config)?);
-    let egress = Arc::new(Egress::from_env(
-        config.direct,
-        Duration::from_secs(config.timeout_seconds),
-    )?);
+    let egress = Arc::new(Egress::from_config(&config)?);
     let tls = if let Some(tls) = &config.tls {
         Some(
             axum_server::tls_rustls::RustlsConfig::from_pem_file(&tls.cert, &tls.key)
@@ -61,6 +58,11 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    let control = if config.web_enabled {
+        gh_proxy::control::Control::managed(config.clone(), egress.clone(), &args.config)?
+    } else {
+        gh_proxy::control::Control::readonly(config.clone(), egress.clone())
+    };
     let http = TcpListener::bind(config.http_listen)
         .await
         .context("cannot bind HTTP listener")?
@@ -68,7 +70,7 @@ async fn main() -> Result<()> {
     let socks = TcpListener::bind(config.socks_listen)
         .await
         .context("cannot bind SOCKS listener")?;
-    let router = App::new(config.clone(), egress.clone())
+    let router = App::managed(control.clone())
         .router()
         .into_make_service_with_connect_info::<std::net::SocketAddr>();
     let handle = axum_server::Handle::new();
@@ -87,7 +89,7 @@ async fn main() -> Result<()> {
                 .await
         }
     });
-    let ssh_task = tokio::spawn(ssh::serve(socks, config.clone(), egress, stopped));
+    let ssh_task = tokio::spawn(ssh::serve_managed(socks, control, stopped));
     tracing::info!(http=%config.http_listen,socks=%config.socks_listen,event="started");
     let mut http_task = http_task;
     let mut ssh_task = ssh_task;

@@ -56,6 +56,22 @@ fn proxy(value: Option<String>, socks_only: bool) -> Result<Option<Url>> {
         .transpose()
 }
 impl Egress {
+    pub fn from_config(config: &crate::config::Config) -> Result<Self> {
+        Self::from_lookup(
+            |key| {
+                let configured = match key {
+                    "HTTP_PROXY" => &config.upstream.http_proxy,
+                    "HTTPS_PROXY" => &config.upstream.https_proxy,
+                    "ALL_PROXY" => &config.upstream.all_proxy,
+                    "NO_PROXY" => &config.upstream.no_proxy,
+                    _ => return std::env::var(key).ok(),
+                };
+                configured.clone().or_else(|| std::env::var(key).ok())
+            },
+            config.direct,
+            Duration::from_secs(config.timeout_seconds),
+        )
+    }
     pub fn from_env(direct: bool, timeout: Duration) -> Result<Self> {
         Self::from_lookup(|s| std::env::var(s).ok(), direct, timeout)
     }

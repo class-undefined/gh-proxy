@@ -11,7 +11,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    sync::{Semaphore, watch},
+    sync::watch,
     task::JoinSet,
     time::timeout,
 };
@@ -165,9 +165,20 @@ pub async fn serve(
     listener: TcpListener,
     config: Arc<Config>,
     egress: Arc<Egress>,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    serve_managed(
+        listener,
+        crate::control::Control::readonly(config, egress),
+        shutdown,
+    )
+    .await
+}
+pub async fn serve_managed(
+    listener: TcpListener,
+    control: Arc<crate::control::Control>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
-    let slots = Arc::new(Semaphore::new(config.max_connections));
     let mut tasks = JoinSet::new();
     loop {
         tokio::select! {
@@ -175,8 +186,10 @@ pub async fn serve(
             Some(_) = tasks.join_next(), if !tasks.is_empty() => {},
             accepted = listener.accept() => {
                 let (stream, peer) = accepted?;
+                let current=control.snapshot();
+                let config=&current.config; let egress=&current.egress;
                 if !config.allows_client(peer.ip()) { tracing::warn!(entry="ssh", result="source_denied"); continue; }
-                let Ok(permit) = slots.clone().try_acquire_owned() else { continue; };
+                let Ok(permit) = current.ssh_slots.clone().try_acquire_owned() else { continue; };
                 let config = config.clone(); let egress = egress.clone();
                 tasks.spawn(async move {
                     let _permit = permit;

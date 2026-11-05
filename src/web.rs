@@ -8,7 +8,10 @@ use axum::{
 };
 use serde_json::{Value, json};
 use std::{
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Instant,
 };
 
@@ -27,9 +30,9 @@ impl Runtime {
             failed: AtomicU64::new(0),
         }
     }
-    fn snapshot(&self, config: &Config, egress: &Egress) -> Value {
+    fn snapshot(&self, config: &Config, egress: &Egress, management: bool) -> Value {
         json!({
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": env!("CARGO_PKG_VERSION"), "management_enabled":management,
             "public_url": config.public_url.as_str(),
             "uptime_seconds": self.started.elapsed().as_secs(),
             "ready": egress.http_available() && (config.ssh_targets.is_empty() || egress.ssh_available()),
@@ -63,23 +66,11 @@ fn secured(mut response: Response) -> Response {
     );
     headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
     headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
-    headers.insert("content-security-policy", HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"));
+    headers.insert("content-security-policy", HeaderValue::from_static("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"));
     response
 }
-/// Called only after the shared source ACL. No mutations, proxy URLs or file paths are exposed.
-pub(crate) fn respond(
-    path: &str,
-    method: &Method,
-    authority: Option<&str>,
-    config: &Config,
-    egress: &Egress,
-    runtime: &Runtime,
-) -> Option<Response> {
-    if path != "/" && path != "/ui" && path != "/favicon.ico" && !path.starts_with("/_ui/") {
-        return None;
-    }
-    // A local source ACL alone cannot prevent DNS rebinding to a loopback gateway.
-    let valid_host = authority
+fn host_matches(authority: Option<&str>, config: &Config) -> bool {
+    authority
         .filter(|host| !host.contains('@'))
         .and_then(|host| host.parse::<axum::http::uri::Authority>().ok())
         .is_some_and(|host| {
@@ -97,7 +88,23 @@ pub(crate) fn respond(
                     80
                 })
                 == config.public_url.port_or_known_default().unwrap_or(443)
-        });
+        })
+}
+/// Called only after the shared source ACL. No mutations, proxy URLs or file paths are exposed.
+pub(crate) fn respond(
+    path: &str,
+    method: &Method,
+    authority: Option<&str>,
+    config: &Config,
+    egress: &Egress,
+    runtime: &Runtime,
+    management: bool,
+) -> Option<Response> {
+    if path != "/" && path != "/ui" && path != "/favicon.ico" && !path.starts_with("/_ui/") {
+        return None;
+    }
+    // A local source ACL alone cannot prevent DNS rebinding to a loopback gateway.
+    let valid_host = host_matches(authority, config);
     if !valid_host {
         return Some(secured(StatusCode::NOT_FOUND.into_response()));
     }
@@ -134,13 +141,93 @@ pub(crate) fn respond(
             include_str!("../web/view-model.js"),
         )
             .into_response(),
-        "/_ui/status" => Json(runtime.snapshot(config, egress)).into_response(),
+        "/_ui/status" => Json(runtime.snapshot(config, egress, management)).into_response(),
         _ => StatusCode::NOT_FOUND.into_response(),
     };
     if *method == Method::HEAD {
         *response.body_mut() = Body::empty();
     }
     Some(secured(response))
+}
+
+pub(crate) async fn manage(
+    request: axum::extract::Request,
+    peer: std::net::IpAddr,
+    control: &Arc<crate::control::Control>,
+) -> Response {
+    use crate::control::{SaveError, Update};
+    use axum::body::to_bytes;
+    let current = control.snapshot();
+    let config = &current.config;
+    let authority = request
+        .uri()
+        .authority()
+        .map(|v| v.as_str())
+        .or_else(|| request.headers().get("host").and_then(|v| v.to_str().ok()));
+    let error = |status: StatusCode, message: &str| {
+        secured((status, Json(json!({"message":message}))).into_response())
+    };
+    if !config.web_enabled || !control.enabled() || !host_matches(authority, config) {
+        return error(StatusCode::NOT_FOUND, "设置不可用");
+    }
+    if !control.authorized(
+        request
+            .headers()
+            .get("authorization")
+            .and_then(|v| v.to_str().ok()),
+    ) {
+        return error(StatusCode::UNAUTHORIZED, "管理密钥无效");
+    }
+    if request
+        .headers()
+        .get("sec-fetch-site")
+        .is_some_and(|v| v == "cross-site")
+    {
+        return error(StatusCode::FORBIDDEN, "请求来源无效");
+    }
+    match *request.method() {
+        Method::GET => secured(Json(control.document().await).into_response()),
+        Method::PUT => {
+            let origin = config.public_url.origin().ascii_serialization();
+            if request
+                .headers()
+                .get("origin")
+                .and_then(|v| v.to_str().ok())
+                != Some(&origin)
+                || request
+                    .headers()
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .is_none_or(|s| s.split(';').next() != Some("application/json"))
+            {
+                return error(StatusCode::FORBIDDEN, "请求来源或格式无效");
+            }
+            let Ok(Ok(bytes)) = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                to_bytes(request.into_body(), 1024 * 1024),
+            )
+            .await
+            else {
+                return error(StatusCode::BAD_REQUEST, "配置内容过大或读取超时");
+            };
+            let Ok(update) = serde_json::from_slice::<Update>(&bytes) else {
+                return error(StatusCode::BAD_REQUEST, "配置格式无效");
+            };
+            match control.save(update, peer).await {
+                Ok(()) => secured(Json(control.document().await).into_response()),
+                Err(SaveError::Conflict) => {
+                    error(StatusCode::CONFLICT, "配置已被修改，请重新加载后再保存")
+                }
+                Err(SaveError::Invalid(message)) => error(StatusCode::BAD_REQUEST, &message),
+                Err(SaveError::Storage) => error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "无法保存，请检查配置目录的写入权限",
+                ),
+                Err(SaveError::Disabled) => error(StatusCode::NOT_FOUND, "设置不可用"),
+            }
+        }
+        _ => error(StatusCode::METHOD_NOT_ALLOWED, "不支持的操作"),
+    }
 }
 
 #[cfg(test)]

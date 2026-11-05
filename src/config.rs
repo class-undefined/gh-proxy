@@ -1,13 +1,13 @@
 use anyhow::{Context, Result, ensure};
 use ipnet::IpNet;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     net::{IpAddr, SocketAddr},
     path::Path,
 };
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub http_listen: SocketAddr,
@@ -24,6 +24,8 @@ pub struct Config {
     pub timeout_seconds: u64,
     pub tls: Option<Tls>,
     #[serde(default)]
+    pub upstream: Upstream,
+    #[serde(default)]
     pub repositories: Vec<Repository>,
     #[serde(default)]
     pub ssh_targets: Vec<SshTarget>,
@@ -38,13 +40,13 @@ fn default_timeout() -> u64 {
     300
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tls {
     pub cert: String,
     pub key: String,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Repository {
     pub name: String,
@@ -53,7 +55,7 @@ pub struct Repository {
     #[serde(default)]
     pub release: Release,
 }
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Release {
     #[serde(default)]
@@ -69,7 +71,7 @@ pub struct Release {
     #[serde(default)]
     pub delete: bool,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SshTarget {
     pub host: String,
@@ -195,4 +197,13 @@ mod tests {
         c.repositories[0].name = "owner/../repo".into();
         assert!(c.validate().is_err());
     }
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Upstream {
+    pub http_proxy: Option<String>,
+    pub https_proxy: Option<String>,
+    pub all_proxy: Option<String>,
+    pub no_proxy: Option<String>,
 }
