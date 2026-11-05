@@ -13,6 +13,25 @@
 
 SSH 加密内容对网关不可见。SSH 仓库和读写权限由 GitHub 控制，HTTP 仓库白名单不适用于 SSH。
 
+## 下载二进制
+
+从 [GitHub Releases](https://github.com/class-undefined/gh-proxy/releases) 下载对应平台的压缩包，解压即可运行，无需 Rust 工具链。同一个二进制支持网关服务、`connect` 和 `credential` 客户端命令。
+
+| 平台 | 架构 | 文件名（以 v0.1.0 为例） |
+| --- | --- | --- |
+| Linux | x86_64 / AMD64 | `gh-proxy-v0.1.0-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux | ARM64 | `gh-proxy-v0.1.0-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS Intel | x86_64 | `gh-proxy-v0.1.0-x86_64-apple-darwin.tar.gz` |
+| macOS Apple Silicon | ARM64 | `gh-proxy-v0.1.0-aarch64-apple-darwin.tar.gz` |
+| Windows | x86_64 / AMD64 | `gh-proxy-v0.1.0-x86_64-pc-windows-msvc.zip` |
+| Windows | ARM64 | `gh-proxy-v0.1.0-aarch64-pc-windows-msvc.zip` |
+
+Linux 包使用 GNU libc，在 Ubuntu 22.04 原生构建，面向 glibc 2.35 及以上；macOS 构建的最低部署版本为 11.0；Windows 使用 MSVC 和静态 C 运行时。每个目标均在对应系统和架构运行测试及二进制检查。运行器标签依据 [GitHub 官方列表](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)。
+
+Release 同时提供 `SHA256SUMS`。下载压缩包和校验文件后，Linux 可执行 `sha256sum --ignore-missing -c SHA256SUMS`；macOS 使用 `shasum -a 256 <压缩包>`，Windows 使用 `Get-FileHash <压缩包> -Algorithm SHA256`，与清单对应行比对。
+
+压缩包只包含 `gh-proxy` 或 `gh-proxy.exe`。客户端可直接调用；运行网关服务时，另从对应版本源码获取 [示例配置](config/example.toml)，按实际环境修改。将二进制加入 PATH 后，下方 SSH 示例即可使用。自动发布的触发方式见 [发布文档](docs/releasing.md)。
+
 ## 快速开始
 
 需要 `rustup`，仓库固定 Rust 1.94.1：
@@ -166,6 +185,7 @@ SSH 公钥认证和仓库权限始终由 GitHub 校验；保持主机密钥校�
 
 - [构建、配置、安装与运行](docs/operations.md)
 - [HTTP / SSH 认证与故障排查](docs/authentication.md)
+- [版本发布与多平台构建](docs/releasing.md)
 - [界面与组件设计](docs/design.md)
 - [需求规格](docs/requirements.md)
 - [架构与安全边界](docs/architecture.md)
