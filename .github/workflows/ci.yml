@@ -1,19 +1,111 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  rust:
-    runs-on: ubuntu-latest
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - run: node --test web/tests/*.test.mjs
       - name: Install pinned toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: quality
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked
-      - run: cargo build --locked --release
+      - run: node --test web/tests/*.test.mjs
+      - run: python3 -m unittest discover -s scripts/tests -v
+      - name: Lint workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+  binaries:
+    name: Binary (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            binary: gh-proxy
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            binary: gh-proxy
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            binary: gh-proxy
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            binary: gh-proxy
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            binary: gh-proxy.exe
+            rustflags: -C target-feature=+crt-static
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            binary: gh-proxy.exe
+            rustflags: -C target-feature=+crt-static
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: ${{ matrix.rustflags || '' }}
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+      AWS_LC_SYS_PREBUILT_NASM: "1"
+      CC_aarch64_pc_windows_msvc: clang-cl
+      TARGET: ${{ matrix.target }}
+      BINARY: ${{ matrix.binary }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure Windows ARM compiler
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          $llvm = Join-Path $env:ProgramFiles "LLVM\bin"
+          $llvm >> $env:GITHUB_PATH
+          & "$llvm\clang-cl.exe" --version
+      - name: Install pinned toolchain and target
+        run: |
+          rustup show
+          rustup target add "$TARGET"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.runner }}-${{ matrix.target }}
+      - run: cargo test --locked --target "$TARGET"
+      - run: cargo build --locked --release --target "$TARGET"
+      - name: Smoke test the native executable
+        run: |
+          "target/$TARGET/release/$BINARY" --version
+          "target/$TARGET/release/$BINARY" connect --help
+      - name: Read package version
+        id: version
+        run: python3 scripts/release.py version >> "$GITHUB_OUTPUT"
+      - name: Package binary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python3 scripts/release.py package --target "$TARGET" --version "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
