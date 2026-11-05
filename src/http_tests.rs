@@ -121,7 +121,7 @@ async fn fixture_with_limit(limit: usize) -> Fixture {
     )
     .unwrap();
     egress.test_root = Some(root);
-    let mut config: Config = toml::from_str(include_str!("../config/example.toml")).unwrap();
+    let mut config: Config = toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
     config.max_connections = limit;
     let r = &mut config.repositories[0];
     r.write = true;

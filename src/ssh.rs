@@ -270,7 +270,7 @@ mod tests {
     }
     #[tokio::test]
     async fn target_denial_and_source_acl_at_listener() {
-        let config: Config = toml::from_str(include_str!("../config/example.toml")).unwrap();
+        let config: Config = toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
         let config = Arc::new(config);
         let e = Arc::new(Egress::from_lookup(|_| None, false, Duration::from_secs(1)).unwrap());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -290,7 +290,7 @@ mod tests {
         drop(s);
         stop.send(true).unwrap();
         task.await.unwrap().unwrap();
-        let mut config: Config = toml::from_str(include_str!("../config/example.toml")).unwrap();
+        let mut config: Config = toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
         config.clients = vec!["192.0.2.0/24".parse().unwrap()];
         let e = Arc::new(Egress::from_lookup(|_| None, false, Duration::from_secs(1)).unwrap());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

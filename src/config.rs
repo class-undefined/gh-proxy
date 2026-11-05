@@ -181,7 +181,7 @@ mod tests {
     use super::*;
     #[test]
     fn example_is_valid_and_deny_by_default() {
-        let c: Config = toml::from_str(include_str!("../config/example.toml")).unwrap();
+        let c: Config = toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
         c.validate().unwrap();
         assert!(!c.direct);
         assert!(c.allows_client("127.0.0.1".parse().unwrap()));
@@ -190,7 +190,7 @@ mod tests {
     }
     #[test]
     fn unsafe_config_rejected() {
-        let mut c: Config = toml::from_str(include_str!("../config/example.toml")).unwrap();
+        let mut c: Config = toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
         c.http_listen = "0.0.0.0:8080".parse().unwrap();
         assert!(c.validate().is_err());
         c.http_listen = "127.0.0.1:8080".parse().unwrap();

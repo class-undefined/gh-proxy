@@ -299,7 +299,7 @@ mod tests {
     fn fixture() -> (tempfile::TempDir, Arc<Control>) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        std::fs::write(&path, include_str!("../config/example.toml")).unwrap();
+        std::fs::write(&path, include_str!("../tests/fixtures/gateway.toml")).unwrap();
         let c = Arc::new(Config::load(&path).unwrap());
         let e = Arc::new(
             Egress::from_lookup(|_| None, false, std::time::Duration::from_secs(1)).unwrap(),

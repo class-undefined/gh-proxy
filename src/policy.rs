@@ -263,7 +263,7 @@ pub fn redirect_target(route: &Route, previous: &Url, location: &str) -> Result<
 mod tests {
     use super::*;
     fn config() -> Config {
-        toml::from_str(include_str!("../config/example.toml")).unwrap()
+        toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap()
     }
     fn check(method: &str, path: &str, binary: bool) -> Result<Route> {
         github(

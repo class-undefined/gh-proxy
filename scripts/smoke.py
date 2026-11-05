@@ -38,7 +38,7 @@ def main():
     http, socks = port(), port()
     while socks == http:
         socks = port()
-    config = (ROOT / "config/example.toml").read_text().replace(
+    config = (ROOT / "tests/fixtures/gateway.toml").read_text().replace(
         "127.0.0.1:8080", f"127.0.0.1:{http}").replace(
         "127.0.0.1:1080", f"127.0.0.1:{socks}").replace("direct = false", "direct = false" if args.proxy_env else "direct = true")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))

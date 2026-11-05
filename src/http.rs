@@ -367,7 +367,7 @@ mod tests {
     use super::*;
     use tower::ServiceExt;
     fn app() -> App {
-        let c: Config = toml::from_str(include_str!("../config/example.toml")).unwrap();
+        let c: Config = toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
         let e = Egress::from_lookup(|_| None, false, std::time::Duration::from_secs(1)).unwrap();
         App::new(Arc::new(c), Arc::new(e))
     }
