@@ -1,0 +1,75 @@
+name: Portable Linux
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Static musl target
+        type: choice
+        required: true
+        default: x86_64-unknown-linux-musl
+        options:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+permissions:
+  contents: read
+concurrency:
+  group: portable-${{ github.ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ${{ inputs.target == 'aarch64-unknown-linux-musl' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ inputs.target }}
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: -C target-feature=+crt-static
+      CC_x86_64_unknown_linux_musl: musl-gcc
+      CC_aarch64_unknown_linux_musl: musl-gcc
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install musl compiler and pinned Rust target
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
+          rustup show
+          rustup target add "$TARGET"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: portable-${{ inputs.target }}
+          cache-on-failure: true
+      - run: cargo test --locked --target "$TARGET"
+      - run: cargo build --locked --release --target "$TARGET"
+      - name: Verify static executable
+        run: |
+          binary="target/$TARGET/release/gh-proxy"
+          "$binary" --version
+          "$binary" connect --help
+          readelf -l "$binary" > program-headers.txt
+          readelf -d "$binary" > dynamic-section.txt
+          if grep -q INTERP program-headers.txt || grep -q NEEDED dynamic-section.txt; then
+            echo "Binary must not depend on a system dynamic loader or shared libraries."
+            exit 1
+          fi
+      - name: Prepare verified deployment artifact
+        run: |
+          mkdir dist
+          install -m 0755 "target/$TARGET/release/gh-proxy" dist/gh-proxy
+          (cd dist && sha256sum gh-proxy > SHA256SUMS)
+          {
+            git rev-parse HEAD
+            printf 'target=%s\n' "$TARGET"
+            python3 scripts/release.py version
+          } > dist/build-info.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: portable-${{ inputs.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
