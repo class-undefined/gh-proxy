@@ -48,6 +48,7 @@ curl --fail http://127.0.0.1:8080/health/ready
 ## 文档与验证
 
 - [构建、配置、安装与运行](docs/operations.md)
+- [HTTP / SSH 认证与故障排查](docs/authentication.md)
 - [界面与组件设计](docs/design.md)
 - [需求规格](docs/requirements.md)
 - [架构与安全边界](docs/architecture.md)
