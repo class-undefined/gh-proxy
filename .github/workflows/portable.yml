@@ -25,11 +25,9 @@ jobs:
     env:
       TARGET: ${{ inputs.target }}
       CARGO_TERM_COLOR: always
-      RUSTFLAGS: -C target-feature=+crt-static
+      RUSTFLAGS: -C target-feature=+crt-static -C link-self-contained=yes
       CC_x86_64_unknown_linux_musl: musl-gcc
       CC_aarch64_unknown_linux_musl: musl-gcc
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,6 +38,17 @@ jobs:
           sudo apt-get install --yes musl-tools
           rustup show
           rustup target add "$TARGET"
+      - name: Use Rust's self-contained linker and check startup
+        run: |
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          linker="$(rustc --print sysroot)/lib/rustlib/$host/bin/rust-lld"
+          target_key=${TARGET^^}
+          target_key=${target_key//-/_}
+          printf 'CARGO_TARGET_%s_LINKER=%s\n' "$target_key" "$linker" >> "$GITHUB_ENV"
+          printf 'fn main() { println!("static musl startup passed"); }\n' > portable-smoke.rs
+          rustc --target "$TARGET" -C target-feature=+crt-static -C link-self-contained=yes \
+            -C "linker=$linker" portable-smoke.rs -o portable-smoke
+          ./portable-smoke
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: portable-${{ inputs.target }}
