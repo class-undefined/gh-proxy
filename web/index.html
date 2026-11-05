@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta
+      name="description"
+      content="gh-proxy Git 访问网关：服务状态、仓库策略和客户端接入。"
+    />
+    <link rel="icon" type="image/svg+xml" href="/_ui/icon.svg" />
+    <title>gh-proxy · Git 访问网关</title>
+    <link rel="stylesheet" href="/_ui/style.css" />
+    <script type="module" src="/_ui/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳转到内容</a>
+    <svg
+      class="icon-library"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <symbol id="i-grid" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </symbol>
+      <symbol id="i-repo" viewBox="0 0 24 24">
+        <path
+          d="M5 3h14v18H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Z M5 3v12h14M6 18h3"
+        />
+        <path d="M14 6v6l-2-1-2 1V6" />
+      </symbol>
+      <symbol id="i-route" viewBox="0 0 24 24">
+        <circle cx="5" cy="5" r="2" />
+        <circle cx="19" cy="19" r="2" />
+        <path d="M5 7v7a5 5 0 0 0 5 5h7M19 5H9m6-4 4 4-4 4" />
+      </symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24">
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m6 9 3 3-3 3m6 0h5" />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24">
+        <path d="M4 12h16m-6-6 6 6-6 6" />
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24">
+        <rect x="8" y="8" width="12" height="13" rx="2" />
+        <path d="M16 8V3H3v13h5" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path
+          d="M20 10a8 8 0 0 0-14-5L3 8m0-6v6h6m-5 6a8 8 0 0 0 14 5l3-3m0 6v-6h-6"
+        />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="10" cy="10" r="6" />
+        <path d="m15 15 6 6" />
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24">
+        <path d="m12 2 9 4v6c0 5-9 10-9 10S3 17 3 12V6l9-4Z" />
+        <path d="m8 12 3 3 5-6" />
+      </symbol>
+      <symbol id="i-link" viewBox="0 0 24 24">
+        <path
+          d="m10 7 2-2a5 5 0 0 1 7 7l-2 2M7 10l-2 2a5 5 0 0 0 7 7l2-2m-6-1 8-8"
+        />
+      </symbol>
+    </svg>
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="brand" href="#overview" aria-label="gh-proxy 首页"
+          ><span class="brand-mark" aria-hidden="true">g<span>↗</span></span
+          ><span
+            >gh-proxy<span class="brand-caption">GIT ACCESS GATEWAY</span></span
+          ></a
+        >
+        <div class="workspace-label">
+          <span class="workspace-dot"></span> GitHub 工作空间
+          <span class="mono">01</span>
+        </div>
+        <nav aria-label="主导航">
+          <p class="nav-caption">工作台 <span>WORKSPACE</span></p>
+          <a
+            class="nav-item active"
+            href="#overview"
+            data-nav="overview"
+            aria-current="page"
+            ><svg><use href="#i-grid" /></svg>服务概览
+            <span class="nav-index">01</span></a
+          >
+          <a class="nav-item" href="#repositories" data-nav="repositories"
+            ><svg><use href="#i-repo" /></svg>仓库策略
+            <span class="nav-count" id="nav-repo-count">—</span></a
+          >
+          <a class="nav-item" href="#access" data-nav="access"
+            ><svg><use href="#i-route" /></svg>访问与出站
+            <span class="nav-index">03</span></a
+          >
+          <a class="nav-item" href="#guide" data-nav="guide"
+            ><svg><use href="#i-terminal" /></svg>接入指南
+            <span class="nav-index">04</span></a
+          >
+        </nav>
+        <div class="sidebar-bottom">
+          <span class="rust-label"
+            ><span class="rust-symbol">✳</span> BUILT WITH RUST</span
+          >
+          <p>让代码流动。<br />让边界清晰。</p>
+          <div class="sidebar-version">
+            <span id="sidebar-version">gh-proxy</span><span>SELF-HOSTED ↗</span>
+          </div>
+        </div>
+      </aside>
+      <div class="workspace">
+        <header class="topbar">
+          <div class="breadcrumb">
+            工作台 <span>/</span> <strong id="breadcrumb">服务概览</strong>
+          </div>
+          <div class="topbar-right">
+            <span class="readonly"
+              ><span class="small-square"></span> 只读控制台</span
+            ><span class="topbar-divider"></span
+            ><span class="mono" id="top-version">v—</span>
+          </div>
+        </header>
+        <main id="main" tabindex="-1">
+          <div
+            id="connection-error"
+            class="error-banner"
+            role="alert"
+            hidden
+          ></div>
+          <noscript
+            ><div class="error-banner">
+              请启用 JavaScript 查看实时状态。健康检查仍可通过 /health/live 和
+              /health/ready 访问。
+            </div></noscript
+          >
+          <section data-panel="overview" aria-labelledby="overview-title">
+            <div class="section-topline">
+              <span class="eyebrow">GATEWAY / OVERVIEW</span
+              ><button class="button button-quiet refresh" type="button">
+                <svg><use href="#i-refresh" /></svg><span>刷新状态</span>
+              </button>
+            </div>
+            <div class="hero">
+              <div>
+                <div class="hero-kicker">
+                  <span class="tiny-line"></span> 你的代码，安全抵达。
+                </div>
+                <h1 id="overview-title">
+                  连接代码。<br />掌控边界<span class="orange">。</span>
+                </h1>
+                <p class="hero-description">
+                  从仓库同步到版本发布，为内网提供一个清晰、可控的 GitHub
+                  访问入口。
+                </p>
+                <a class="button button-dark" href="#guide"
+                  >开始接入 <svg><use href="#i-arrow" /></svg
+                ></a>
+              </div>
+              <div class="gateway-card">
+                <div class="gateway-card-top">
+                  <span class="mono">GATEWAY STATUS</span
+                  ><span class="tag" id="gateway-badge">加载中</span>
+                </div>
+                <div class="gateway-monogram" aria-hidden="true">
+                  <span>git</span><span class="gateway-arrow">↗</span>
+                </div>
+                <div class="gateway-origin" id="gateway-origin">
+                  正在读取网关地址…
+                </div>
+                <div class="gateway-card-bottom">
+                  <span
+                    ><span class="dot" id="gateway-dot"></span
+                    ><span id="gateway-status">正在连接服务</span></span
+                  ><span class="mono" id="hero-uptime">—</span>
+                </div>
+              </div>
+            </div>
+            <div class="metrics" aria-label="服务指标">
+              <article class="metric">
+                <div class="metric-label">
+                  授权仓库 <svg><use href="#i-repo" /></svg>
+                </div>
+                <div class="metric-value" id="metric-repositories">—</div>
+                <div class="metric-note" id="metric-write">从当前配置读取</div>
+              </article>
+              <article class="metric">
+                <div class="metric-label">
+                  HTTP 代理请求 <svg><use href="#i-route" /></svg>
+                </div>
+                <div class="metric-value" id="metric-requests">—</div>
+                <div class="metric-note">本次启动累计 · 不含页面轮询</div>
+              </article>
+              <article class="metric">
+                <div class="metric-label">
+                  策略拒绝 <svg><use href="#i-shield" /></svg>
+                </div>
+                <div class="metric-value" id="metric-denied">—</div>
+                <div class="metric-note">来源校验后的请求拒绝</div>
+              </article>
+              <article class="metric">
+                <div class="metric-label">
+                  转发失败 <svg><use href="#i-link" /></svg>
+                </div>
+                <div class="metric-value" id="metric-failed">—</div>
+                <div class="metric-note">连接、超时或响应校验失败</div>
+              </article>
+            </div>
+            <div class="section-heading">
+              <div>
+                <span class="eyebrow">01 / TRAFFIC ROUTES</span>
+                <h2>三种入口，一套边界。</h2>
+              </div>
+              <a class="text-link" href="#access"
+                >查看访问策略 <span>↗</span></a
+              >
+            </div>
+            <div class="protocols">
+              <article class="protocol">
+                <div class="protocol-head">
+                  <span class="protocol-icon"
+                    ><svg><use href="#i-repo" /></svg></span
+                  ><span class="tag route-http">读取中</span>
+                </div>
+                <h3>Git HTTP(S)</h3>
+                <p>原生仓库路径，按仓库和读写操作授权。</p>
+                <div class="protocol-bottom">
+                  <code>clone · fetch · push</code><span>01 ↗</span>
+                </div>
+              </article>
+              <article class="protocol">
+                <div class="protocol-head">
+                  <span class="protocol-icon"
+                    ><svg><use href="#i-terminal" /></svg></span
+                  ><span class="tag route-ssh">读取中</span>
+                </div>
+                <h3>SSH 透明转发</h3>
+                <p>沿用已有公钥，由 GitHub 完成端到端认证。</p>
+                <div class="protocol-bottom">
+                  <code>SOCKS5 → SSH</code><span>02 ↗</span>
+                </div>
+              </article>
+              <article class="protocol">
+                <div class="protocol-head">
+                  <span class="protocol-icon"
+                    ><svg><use href="#i-link" /></svg></span
+                  ><span class="tag route-http">读取中</span>
+                </div>
+                <h3>Release API</h3>
+                <p>按操作授权发布流程，受控传输版本附件。</p>
+                <div class="protocol-bottom">
+                  <code>query · publish · assets</code><span>03 ↗</span>
+                </div>
+              </article>
+            </div>
+            <div class="note-strip">
+              <svg><use href="#i-shield" /></svg>
+              <div>
+                <strong>SSH 的仓库权限，由远端平台决定。</strong
+                ><span>
+                  透明转发不解密 SSH；网关只限制客户端、目标域名和端口。</span
+                >
+              </div>
+            </div>
+          </section>
+          <section
+            data-panel="repositories"
+            aria-labelledby="repositories-title"
+            hidden
+          >
+            <div class="section-topline">
+              <span class="eyebrow">POLICY / REPOSITORIES</span
+              ><span class="mono">DEFAULT DENY</span>
+            </div>
+            <div class="page-intro">
+              <h1 id="repositories-title">
+                仓库策略<span class="orange">。</span>
+              </h1>
+              <p>允许列表中的仓库，才可以通过 HTTP 与 API 入口访问。</p>
+            </div>
+            <div class="table-toolbar">
+              <label class="search"
+                ><svg><use href="#i-search" /></svg
+                ><input
+                  id="repository-search"
+                  type="search"
+                  placeholder="搜索 owner/repo"
+                  aria-label="搜索仓库"
+                  autocomplete="off" /></label
+              ><label class="filter-label"
+                >Git 权限
+                <select id="repository-filter">
+                  <option value="all">全部仓库</option>
+                  <option value="read">只读</option>
+                  <option value="write">读写</option>
+                </select></label
+              >
+            </div>
+            <div class="table-scroll">
+              <table>
+                <caption class="sr-only">
+                  HTTP 与 API 仓库访问策略
+                </caption>
+                <thead>
+                  <tr>
+                    <th>仓库 / REPOSITORY</th>
+                    <th>Git 权限</th>
+                    <th>Release 权限</th>
+                    <th><span class="sr-only">操作</span></th>
+                  </tr>
+                </thead>
+                <tbody id="repository-table"></tbody>
+              </table>
+            </div>
+            <p id="repository-empty" class="empty-state" hidden>
+              暂无匹配的仓库。
+            </p>
+            <div class="table-footer">
+              <span id="repository-count">正在读取策略…</span
+              ><span>修改 TOML 配置并重启后生效</span>
+            </div>
+            <div class="note-strip">
+              <svg><use href="#i-shield" /></svg>
+              <div>
+                <strong>默认拒绝，逐项授权。</strong
+                ><span>
+                  仓库白名单适用于 Git HTTP(S) 和
+                  API；允许查询不代表允许创建、上传或删除。</span
+                >
+              </div>
+            </div>
+          </section>
+          <section data-panel="access" aria-labelledby="access-title" hidden>
+            <div class="section-topline">
+              <span class="eyebrow">POLICY / NETWORK</span
+              ><span class="mono">EXPLICIT ROUTING</span>
+            </div>
+            <div class="page-intro">
+              <h1 id="access-title">访问有序<span class="orange">。</span></h1>
+              <p>从客户端来源到平台目标，每一段连接都有明确规则。</p>
+            </div>
+            <div class="flow-panel">
+              <span>CLIENT<br /><strong>内网客户端</strong></span
+              ><span class="flow-arrow">→</span
+              ><span class="flow-gateway"
+                >GATEWAY<br /><strong>gh-proxy</strong></span
+              ><span class="flow-arrow">→</span
+              ><span
+                >EGRESS<br /><strong id="flow-egress"
+                  >读取出站策略</strong
+                ></span
+              ><span class="flow-arrow">→</span
+              ><span>PLATFORM<br /><strong>GitHub</strong></span>
+            </div>
+            <div class="access-grid">
+              <article class="detail-panel">
+                <div class="panel-heading">
+                  <svg><use href="#i-shield" /></svg>
+                  <h2>客户端来源</h2>
+                </div>
+                <p>按 TCP 对端 IP 匹配，忽略客户端转发头。</p>
+                <div class="chip-list" id="client-ranges"></div>
+              </article>
+              <article class="detail-panel">
+                <div class="panel-heading">
+                  <svg><use href="#i-terminal" /></svg>
+                  <h2>SSH 允许目标</h2>
+                </div>
+                <p>只开放配置中的域名与端口组合。</p>
+                <div class="chip-list" id="ssh-targets"></div>
+              </article>
+              <article class="detail-panel">
+                <div class="panel-heading">
+                  <svg><use href="#i-route" /></svg>
+                  <h2>出站规则</h2>
+                </div>
+                <dl class="definition-list">
+                  <div>
+                    <dt>Git / API 路由</dt>
+                    <dd id="http-route">—</dd>
+                  </div>
+                  <div>
+                    <dt>SSH 路由</dt>
+                    <dd id="ssh-route">—</dd>
+                  </div>
+                  <div>
+                    <dt>无代理直连</dt>
+                    <dd id="direct-rule">—</dd>
+                  </div>
+                  <div>
+                    <dt>代理失效</dt>
+                    <dd>拒绝请求，不回退直连</dd>
+                  </div>
+                </dl>
+              </article>
+              <article class="detail-panel">
+                <div class="panel-heading">
+                  <svg><use href="#i-grid" /></svg>
+                  <h2>服务参数</h2>
+                </div>
+                <dl class="definition-list">
+                  <div>
+                    <dt>客户端 HTTP 入口</dt>
+                    <dd id="tls-rule">—</dd>
+                  </div>
+                  <div>
+                    <dt>每入口并发上限</dt>
+                    <dd id="connection-limit">—</dd>
+                  </div>
+                  <div>
+                    <dt>请求 / 会话时限</dt>
+                    <dd id="timeout-rule">—</dd>
+                  </div>
+                  <div>
+                    <dt>配置更新</dt>
+                    <dd>修改后重启服务</dd>
+                  </div>
+                </dl>
+              </article>
+            </div>
+          </section>
+          <section data-panel="guide" aria-labelledby="guide-title" hidden>
+            <div class="section-topline">
+              <span class="eyebrow">QUICKSTART / CLIENT SETUP</span
+              ><span class="mono">NATIVE GIT WORKFLOW</span>
+            </div>
+            <div class="page-intro">
+              <h1 id="guide-title">
+                下一站，代码<span class="orange">。</span>
+              </h1>
+              <p>选择仓库与连接方式，复制适用于当前网关的接入命令。</p>
+            </div>
+            <div class="guide-layout">
+              <div class="guide-controls">
+                <label for="guide-repository">目标仓库</label
+                ><select id="guide-repository">
+                  <option value="">正在加载…</option>
+                </select>
+                <div class="guide-tabs" role="tablist" aria-label="连接方式">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="command-panel"
+                    id="tab-https"
+                    data-protocol="https"
+                    tabindex="0"
+                  >
+                    HTTPS</button
+                  ><button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="command-panel"
+                    id="tab-ssh"
+                    data-protocol="ssh"
+                    tabindex="-1"
+                  >
+                    SSH</button
+                  ><button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="command-panel"
+                    id="tab-api"
+                    data-protocol="api"
+                    tabindex="-1"
+                  >
+                    Release API
+                  </button>
+                </div>
+                <p id="guide-description">正在读取连接配置。</p>
+                <p class="guide-warning" id="guide-warning" hidden></p>
+              </div>
+              <div
+                class="terminal-panel"
+                id="command-panel"
+                role="tabpanel"
+                aria-labelledby="tab-https"
+              >
+                <div class="terminal-header">
+                  <span
+                    ><span class="terminal-dot"></span>
+                    <span id="command-title">CLIENT / HTTPS</span></span
+                  ><button
+                    class="copy-button"
+                    id="copy-command"
+                    type="button"
+                    disabled
+                  >
+                    <svg><use href="#i-copy" /></svg><span>复制命令</span>
+                  </button>
+                </div>
+                <pre><code id="client-command">正在读取网关配置…</code></pre>
+                <div class="terminal-footer">
+                  <span id="command-footnote">命令由当前配置生成</span
+                  ><span>↵</span>
+                </div>
+              </div>
+            </div>
+            <div class="guide-notes">
+              <article>
+                <span class="mono orange">01 / AUTHENTICATION</span>
+                <h3>凭据留在客户端</h3>
+                <p>
+                  HTTPS 使用你自己的 GitHub 凭据；SSH
+                  沿用已有公钥。网关不托管个人身份。
+                </p>
+              </article>
+              <article>
+                <span class="mono orange">02 / PERMISSIONS</span>
+                <h3>授权仍然需要两道检查</h3>
+                <p>
+                  网关策略与 GitHub
+                  权限共同约束请求。页面中的命令不会授予额外权限。
+                </p>
+              </article>
+              <article>
+                <span class="mono orange">03 / CONNECTIVITY</span>
+                <h3>路由就绪 ≠ 平台可达</h3>
+                <p>
+                  状态来自配置与进程计数。实际连通性请通过 clone、fetch 或授权
+                  API 请求确认。
+                </p>
+              </article>
+            </div>
+          </section>
+          <footer class="footer">
+            <span
+              ><span class="footer-mark">↗</span> gh-proxy
+              <span class="footer-sub">为可控连接而构建</span></span
+            ><span id="last-updated">正在连接网关…</span>
+          </footer>
+        </main>
+      </div>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

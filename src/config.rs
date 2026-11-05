@@ -16,6 +16,8 @@ pub struct Config {
     pub clients: Vec<IpNet>,
     #[serde(default)]
     pub direct: bool,
+    #[serde(default = "default_web_enabled")]
+    pub web_enabled: bool,
     #[serde(default = "default_connections")]
     pub max_connections: usize,
     #[serde(default = "default_timeout")]
@@ -25,6 +27,9 @@ pub struct Config {
     pub repositories: Vec<Repository>,
     #[serde(default)]
     pub ssh_targets: Vec<SshTarget>,
+}
+fn default_web_enabled() -> bool {
+    true
 }
 fn default_connections() -> usize {
     128

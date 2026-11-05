@@ -6,3 +6,4 @@ pub mod ssh;
 
 #[cfg(test)]
 mod http_tests;
+mod web;

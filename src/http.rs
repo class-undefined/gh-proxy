@@ -27,6 +27,7 @@ pub struct App {
     config: Arc<Config>,
     egress: Arc<Egress>,
     slots: Arc<Semaphore>,
+    runtime: Arc<crate::web::Runtime>,
     sequence: Arc<AtomicU64>,
 }
 impl App {
@@ -35,6 +36,7 @@ impl App {
             slots: Arc::new(Semaphore::new(config.max_connections)),
             config,
             egress,
+            runtime: Arc::new(crate::web::Runtime::new()),
             sequence: Arc::new(AtomicU64::new(1)),
         }
     }
@@ -272,6 +274,25 @@ async fn handle(
     if !app.config.allows_client(peer.ip()) {
         return (StatusCode::FORBIDDEN, "client denied\n").into_response();
     }
+    if let Some(response) = crate::web::respond(
+        request.uri().path(),
+        request.method(),
+        request
+            .uri()
+            .authority()
+            .map(|host| host.as_str())
+            .or_else(|| {
+                request
+                    .headers()
+                    .get("host")
+                    .and_then(|host| host.to_str().ok())
+            }),
+        &app.config,
+        &app.egress,
+        &app.runtime,
+    ) {
+        return response;
+    }
     if matches!(request.uri().path(), "/health/live" | "/health/ready") {
         if request.method() != Method::GET {
             return StatusCode::METHOD_NOT_ALLOWED.into_response();
@@ -284,6 +305,7 @@ async fn handle(
             (StatusCode::SERVICE_UNAVAILABLE, "egress not configured\n").into_response()
         };
     }
+    app.runtime.requests.fetch_add(1, Ordering::Relaxed);
     let binary = request
         .headers()
         .get("accept")
@@ -306,17 +328,21 @@ async fn handle(
     let route = match policy::github(&app.config, request.method(), &policy_uri, binary) {
         Ok(route) => route,
         Err(_) => {
+            app.runtime.denied.fetch_add(1, Ordering::Relaxed);
             tracing::warn!(request_id = id, entry = "http", result = "policy_denied");
             return (StatusCode::FORBIDDEN, "request denied\n").into_response();
         }
     };
     let response = match forward(&app, &route, request).await {
         Ok(response) => response,
-        Err(_) => (
-            StatusCode::BAD_GATEWAY,
-            "upstream unavailable or response rejected\n",
-        )
-            .into_response(),
+        Err(_) => {
+            app.runtime.failed.fetch_add(1, Ordering::Relaxed);
+            (
+                StatusCode::BAD_GATEWAY,
+                "upstream unavailable or response rejected\n",
+            )
+                .into_response()
+        }
     };
     tracing::info!(request_id=id,entry="http",repository=%route.repository,operation=?route.operation,status=response.status().as_u16(),elapsed_ms=start.elapsed().as_millis() as u64);
     response

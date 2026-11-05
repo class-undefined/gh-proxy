@@ -4,6 +4,8 @@ socks_listen = "127.0.0.1:1080"
 public_url = "http://127.0.0.1:8080"
 clients = ["127.0.0.1/32", "::1/128"]
 direct = false
+# Read-only console at public_url; source ACL and public host validation also apply.
+web_enabled = true
 max_connections = 128
 timeout_seconds = 300
 
