@@ -234,6 +234,63 @@ mod tests {
         task.await.unwrap();
     }
     #[tokio::test]
+    async fn local_dns_rejects_reserved_destination() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            let mut head = [0; 3];
+            s.read_exact(&mut head).await.unwrap();
+            s.write_all(&[5, 0]).await.unwrap();
+            let mut rest = Vec::new();
+            s.read_to_end(&mut rest).await.unwrap();
+            assert!(rest.is_empty(), "reserved address sent to upstream");
+        });
+        let e = Egress::from_lookup(
+            |k| (k == "ALL_PROXY").then(|| format!("socks5://{addr}")),
+            false,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert!(proxy_connect(&e, "localhost", 22).await.is_err());
+        task.await.unwrap();
+    }
+    #[tokio::test]
+    async fn target_denial_and_source_acl_at_listener() {
+        let config: Config = toml::from_str(include_str!("../config/example.toml")).unwrap();
+        let config = Arc::new(config);
+        let e = Arc::new(Egress::from_lookup(|_| None, false, Duration::from_secs(1)).unwrap());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop, stopped) = watch::channel(false);
+        let task = tokio::spawn(serve(listener, config, e, stopped));
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        s.write_all(&[5, 1, 0]).await.unwrap();
+        let mut greeting = [0; 2];
+        s.read_exact(&mut greeting).await.unwrap();
+        s.write_all(&[5, 1, 0, 3, 8]).await.unwrap();
+        s.write_all(b"evil.com").await.unwrap();
+        s.write_u16(22).await.unwrap();
+        let mut reply = [0; 10];
+        s.read_exact(&mut reply).await.unwrap();
+        assert_eq!(reply[1], 2);
+        drop(s);
+        stop.send(true).unwrap();
+        task.await.unwrap().unwrap();
+        let mut config: Config = toml::from_str(include_str!("../config/example.toml")).unwrap();
+        config.clients = vec!["192.0.2.0/24".parse().unwrap()];
+        let e = Arc::new(Egress::from_lookup(|_| None, false, Duration::from_secs(1)).unwrap());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop, stopped) = watch::channel(false);
+        let task = tokio::spawn(serve(listener, Arc::new(config), e, stopped));
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        let mut byte = [0; 1];
+        assert!(matches!(s.read(&mut byte).await, Ok(0) | Err(_)));
+        stop.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+    #[tokio::test]
     async fn downstream_rejects_ip_and_other_commands() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

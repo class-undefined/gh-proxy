@@ -126,6 +126,10 @@ impl Config {
             self.tls.is_some() || self.http_listen.ip().is_loopback(),
             "plaintext HTTP must bind loopback behind a TLS reverse proxy"
         );
+        ensure!(
+            self.tls.is_none() || self.public_url.scheme() == "https",
+            "TLS listener requires an HTTPS public_url"
+        );
         let mut names = HashSet::new();
         for repo in &self.repositories {
             let parts: Vec<_> = repo.name.split('/').collect();

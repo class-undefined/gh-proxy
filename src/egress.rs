@@ -170,7 +170,17 @@ impl Egress {
         self.all.is_some() || self.direct
     }
     pub fn http_available(&self) -> bool {
-        self.https.is_some() || self.direct
+        [
+            "https://github.com",
+            "https://api.github.com",
+            "https://uploads.github.com",
+            "https://release-assets.githubusercontent.com",
+        ]
+        .iter()
+        .all(|s| {
+            Url::parse(s)
+                .is_ok_and(|url| self.direct || (self.https.is_some() && !self.bypass(&url)))
+        })
     }
 }
 
@@ -281,6 +291,21 @@ mod tests {
         );
     }
     #[test]
+    fn bypass_default_port_ipv6_and_lowercase() {
+        let e = env(
+            &[
+                ("https_proxy", "http://localhost:9"),
+                ("no_proxy", "github.com:80,[::1]:443"),
+            ],
+            true,
+        );
+        assert!(!e.bypass(&Url::parse("https://github.com").unwrap()));
+        assert!(e.bypass(&Url::parse("http://github.com").unwrap()));
+        assert!(e.bypass(&Url::parse("https://[::1]").unwrap()));
+        assert!(!e.bypass(&Url::parse("https://[::1]:444").unwrap()));
+        assert!(e.client(&Url::parse("https://github.com").unwrap()).is_ok());
+    }
+    #[test]
     fn secrets_not_in_errors_and_private_ips_rejected() {
         let err = Egress::from_lookup(
             |k| (k == "ALL_PROXY").then(|| "http://user:secret@localhost:9".into()),
@@ -300,6 +325,43 @@ mod tests {
         ] {
             assert!(!public_ip(ip.parse().unwrap()));
         }
+    }
+    #[tokio::test]
+    async fn clear_http_uses_explicit_proxy_and_no_proxy_denies_direct() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            while !bytes.ends_with(b"\r\n\r\n") {
+                bytes.push(s.read_u8().await.unwrap());
+            }
+            assert!(bytes.starts_with(b"GET http://example.org/path HTTP/1.1\r\n"));
+            s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await
+                .unwrap();
+        });
+        let e = env(&[("HTTP_PROXY", &format!("http://{addr}"))], false);
+        let url = Url::parse("http://example.org/path").unwrap();
+        assert_eq!(
+            e.client(&url)
+                .unwrap()
+                .get(url)
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap(),
+            "ok"
+        );
+        task.await.unwrap();
+        let e = env(
+            &[("HTTPS_PROXY", "http://localhost:9"), ("NO_PROXY", "*")],
+            false,
+        );
+        assert!(!e.http_available());
     }
     #[tokio::test]
     async fn dead_proxy_never_falls_back() {
