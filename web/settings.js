@@ -201,6 +201,7 @@ $("unlock-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = event.submitter;
   button.disabled = true;
+  $("unlock-form").setAttribute("aria-busy", "true");
   state.token = $("admin-token").value.trim();
   try {
     renderDocument(await request("GET"));
@@ -211,6 +212,7 @@ $("unlock-form").addEventListener("submit", async (event) => {
     error("unlock-error", e.message || "无法连接");
   } finally {
     button.disabled = false;
+    $("unlock-form").setAttribute("aria-busy", "false");
   }
 });
 $("lock-settings").addEventListener("click", () => {
@@ -283,6 +285,7 @@ $("settings-form").addEventListener("submit", async (event) => {
   $("save-settings").disabled = true;
   $("discard-settings").disabled = true;
   $("settings-state").textContent = "保存中…";
+  $("settings-form").setAttribute("aria-busy", "true");
   const fieldsets = [
     ...$("settings-form").querySelectorAll("input,select,textarea,button"),
   ];
@@ -301,6 +304,7 @@ $("settings-form").addEventListener("submit", async (event) => {
   } finally {
     state.busy = false;
     $("lock-settings").disabled = false;
+    $("settings-form").setAttribute("aria-busy", "false");
     fieldsets.forEach((n) => {
       if (n.isConnected) n.disabled = false;
     });
