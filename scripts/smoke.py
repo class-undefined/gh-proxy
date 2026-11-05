@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--proxy-env", action="store_true", help="use proxy environment instead of direct egress")
     parser.add_argument("--github-auth", action="store_true", help="read gh CLI token in memory for the API query")
-    parser.add_argument("--ssh-auth", action="store_true", help="verify existing SSH identity using ssh and OpenBSD nc")
+    parser.add_argument("--ssh-auth", action="store_true", help="verify existing SSH identity using ssh and gh-proxy connect")
     args = parser.parse_args()
     binary = ROOT / "target/debug/gh-proxy"
     if not binary.exists():
@@ -106,7 +106,7 @@ def main():
                     assert sock.recv(256).startswith(b"SSH-2.0-")
                 if args.ssh_auth:
                     result = subprocess.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-                        "-o", "ConnectTimeout=15", "-o", f"ProxyCommand=nc -X 5 -x 127.0.0.1:{socks} %h %p",
+                        "-o", "ConnectTimeout=15", "-o", f'ProxyCommand="{binary}" connect --socks 127.0.0.1:{socks} %h %p',
                         "git@github.com"], env=env, capture_output=True, text=True, timeout=30)
                     assert result.returncode == 1 and "successfully authenticated" in result.stderr, "SSH identity verification failed"
                     print("PASS: existing SSH identity authenticated by GitHub")

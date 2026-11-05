@@ -18,6 +18,17 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum ClientCommand {
+    /// Carry SSH stdin/stdout through the gateway's SOCKS5 listener.
+    Connect {
+        #[arg(long, value_name = "HOST:PORT")]
+        socks: String,
+        host: String,
+        #[arg(value_parser = clap::value_parser!(u16).range(1..))]
+        port: u16,
+        /// TCP connection and SOCKS handshake deadline in seconds (not session lifetime).
+        #[arg(long, default_value_t = 15, value_parser = clap::value_parser!(u64).range(1..=300))]
+        connect_timeout: u64,
+    },
     /// Reuse this client's GitHub credentials for one explicitly configured gateway origin.
     Credential {
         #[arg(long)]
@@ -42,12 +53,27 @@ async fn signal() {
         let _ = tokio::signal::ctrl_c().await;
     }
 }
-#[tokio::main]
-async fn main() -> Result<()> {
-    let args = Args::parse();
-    if let Some(ClientCommand::Credential { gateway, operation }) = args.command {
-        return gh_proxy::credential::run(gateway, operation).await;
+fn main() -> Result<()> {
+    let mut args = Args::parse();
+    match args.command.take() {
+        Some(ClientCommand::Connect {
+            socks,
+            host,
+            port,
+            connect_timeout,
+        }) => gh_proxy::connect::run(&socks, &host, port, Duration::from_secs(connect_timeout)),
+        Some(ClientCommand::Credential { gateway, operation }) => {
+            runtime()?.block_on(gh_proxy::credential::run(gateway, operation))
+        }
+        None => runtime()?.block_on(serve(args)),
     }
+}
+fn runtime() -> Result<tokio::runtime::Runtime> {
+    Ok(tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?)
+}
+async fn serve(args: Args) -> Result<()> {
     // Only application event fields are logged; library debug logs may expose URLs.
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().json())

@@ -1,4 +1,5 @@
 pub mod config;
+pub mod connect;
 pub mod egress;
 pub mod http;
 pub mod policy;
