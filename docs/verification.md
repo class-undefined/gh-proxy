@@ -74,3 +74,14 @@ python3 scripts/smoke.py --proxy-env --github-auth --ssh-auth
 GitHub Release 下载的二进制 API 既可能直接返回内容，也可能重定向，网关覆盖两种响应，并保持仓库授权上下文。接口依据：[GitHub Release assets](https://docs.github.com/en/rest/releases/assets)、[GitHub Releases](https://docs.github.com/en/rest/releases/releases)。
 
 SSH 443 入口使用 `ssh.github.com:443`，按目标逐项授权。依据：[GitHub SSH over HTTPS port](https://docs.github.com/en/authentication/troubleshooting-ssh/using-ssh-over-the-https-port)。
+
+
+## Web 控制台验证（2026-11-05）
+
+新增内置控制台后，Rust 测试共 25 个通过，Node.js 前端测试共 6 个通过；格式、Clippy 和 release 构建通过。
+
+新增自动化覆盖：页面/资源/状态接口共用来源 ACL，公开 Host 校验、GET/HEAD 方法限制、关闭开关、缓存及 CSP 响应头、状态字段不泄露代理凭据，以及控制台轮询不增加代理请求计数。前端覆盖搜索与权限筛选、只读/读写命令差异、SSH 443 配置、Release 示例授权、Shell 引号和续行、空仓库及 HTTP 入口不生成 Token 命令。
+
+通过本机 Google Chrome 进行可视化及交互检查：桌面布局、400px 移动视口的概览与接入指南、仓库搜索及空结果、HTTPS/SSH 切换、命令复制成功提示、服务中断的旧数据提示和恢复后刷新。没有在生产环境开放控制台，也未通过控制台修改网关策略。
+
+设计参考来自用户指定的 [OpenDesign Skills](https://open-design.ai/zh/skills/)，采用 [工业排版界面](https://open-design.ai/zh/skills/industrial-brutalist-ui/) 的网格与功能性色彩方向；资源为仓库原创 HTML/CSS/JS/SVG，没有安装或复制第三方 skill 代码。

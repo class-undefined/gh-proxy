@@ -8,6 +8,7 @@
 - SSH：受限 SOCKS5 CONNECT，保留端到端 SSH 身份认证，限制客户端、GitHub 目标及端口。
 - Release：按仓库及操作控制查询、创建、更新、删除、上传和下载，重写 API 链接并逐跳限制附件重定向。
 - 出站：支持大小写代理环境变量及 NO_PROXY，默认拒绝无代理直连，代理故障不回退直连。
+- Web 控制台：实时配置状态、HTTP 请求计数、仓库搜索与权限筛选、客户端命令生成与复制；离线内置资源，无需前端构建。
 - 服务：原生 TLS、配置检查、存活/就绪端点、脱敏结构化日志、优雅退出和 systemd 配置。
 
 SSH 加密内容对网关不可见。SSH 仓库和读写权限由 GitHub 控制，HTTP 仓库白名单不适用于 SSH。
@@ -24,6 +25,8 @@ ALL_PROXY=socks5h://127.0.0.1:7891 \
 NO_PROXY=localhost,127.0.0.1 \
 ./target/release/gh-proxy --config config.local.toml
 ```
+
+启动后打开 [http://127.0.0.1:8080/](http://127.0.0.1:8080/) 查看 Web 控制台。页面也支持手机浏览；使用配置中的 `public_url` 域名及端口访问。设置 `web_enabled=false` 可关闭控制台。
 
 代理地址需要按实际环境修改。示例仅允许本机与本仓库的只读访问，Release 允许查询和下载。未配置可用上游时出站拒绝；明确需要直连时设置 `direct=true`。生产客户端 CIDR、仓库权限、域名和证书均需自行配置。
 
@@ -46,6 +49,8 @@ curl --fail http://127.0.0.1:8080/health/ready
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
+# 前端测试需要 Node.js 20+；生产运行不需要 Node.js
+node --test web/tests/*.test.mjs
 ```
 
 已完成本地自动化测试及真实 GitHub 只读连通性验证。实际服务器部署、真实仓库写入和 Release 发布仍需在指定环境验收。每完成一项独立工作创建一次原子提交。

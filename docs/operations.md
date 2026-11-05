@@ -27,6 +27,25 @@ curl --fail http://127.0.0.1:8080/health/ready
 
 HTTP 明文仅允许绑定 loopback，用于开发或本地 TLS 反向代理。携带 Token、密码的客户端应使用 HTTPS。外部 HTTP 监听必须配置原生 TLS，不能通过转发头声称请求已加密。
 
+## Web 控制台
+
+启动网关后，访问配置中的 `public_url` 根路径或 `/ui`：示例为 `http://127.0.0.1:8080/`。
+
+控制台提供四个视图：
+
+- 服务概览：进程运行时长、路由配置就绪状态、HTTP 代理请求/拒绝/转发失败计数。
+- 仓库策略：按名称搜索、按只读/读写筛选，以及逐项展示 Release 权限。
+- 访问与出站：来源 CIDR、SSH 精确目标、直连策略、服务并发和时限。
+- 接入指南：根据当前仓库及权限生成 Git、SSH 和 Release 命令，并提供复制按钮。带 Token 的 API 命令仅在 HTTPS public_url 下生成。
+
+页面与资源全部嵌入 Rust 二进制，不依赖 CDN、外部字体、前端构建服务或生产环境 Node.js。编辑 `web/` 后需重新执行 Cargo 构建。开发前端测试需要 Node.js 20+，命令为 `node --test web/tests/*.test.mjs`。
+
+`GET /_ui/status` 为控制台提供显式脱敏的状态投影，不返回代理 URL、凭据、证书或私钥文件路径。控制台、静态资源和状态接口共用 `clients` 白名单，校验请求 Host 与 `public_url` 的主机及端口，并只允许 GET/HEAD。通过反向代理访问时应保留公开 Host；使用其他主机名或端口访问控制台会返回 404。
+
+页面每 15 秒刷新，也可手动刷新；切到后台时暂停轮询。断连会显示旧数据提示，恢复后重新加载。路由“配置就绪”仅表示具备选路配置，不代表已探测 GitHub/代理可达。所有计数从进程启动开始累计，不持久化；仅计入来源校验后的 HTTP 代理请求，不含控制台、页面资源、favicon、健康检查或 SSH 会话。转发失败计数对应网关返回 502，不包含上游自己的 4xx/5xx，也不包含响应头之后的流中断。
+
+设置顶层 `web_enabled=false` 并重启可关闭控制台与状态接口。控制台是只读界面，策略变更仍通过 TOML 配置及重启完成。
+
 ## 配置语义
 
 配置使用严格 TOML，未知字段报错。完整字段见 [示例](../config/example.toml)。
@@ -36,6 +55,7 @@ HTTP 明文仅允许绑定 loopback，用于开发或本地 TLS 反向代理。�
 | `http_listen`、`socks_listen` | 两个不同的监听地址 |
 | `public_url` | 对外根地址，无路径前缀、查询或凭据；用于重写 API URL |
 | `clients` | TCP 对端 IP 的 CIDR 白名单，支持 IPv4/IPv6 |
+| `web_enabled` | 是否开放内置只读控制台，默认 true |
 | `direct` | 是否允许无代理或 NO_PROXY 命中时直连，默认 false |
 | `max_connections` | HTTP 活跃转发和 SSH 隧道分别使用的上限，默认 128 |
 | `timeout_seconds` | HTTP 完整出站请求与 SSH 转发会话的时长上限，默认 300，最大 86400 |
@@ -187,6 +207,7 @@ sudo systemctl restart gh-proxy
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
+node --test web/tests/*.test.mjs
 cargo build --locked
 # 可选：需要 Git、Python 3、OpenSSL 和真实 GitHub 网络连接
 python3 scripts/smoke.py
