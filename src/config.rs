@@ -97,7 +97,10 @@ impl Config {
             self.max_connections > 0 && self.max_connections <= 65536,
             "invalid connection limit"
         );
-        ensure!(self.timeout_seconds > 0, "timeout must be positive");
+        ensure!(
+            (1..=86400).contains(&self.timeout_seconds),
+            "timeout must be between 1 and 86400 seconds"
+        );
         ensure!(
             self.http_listen != self.socks_listen,
             "listeners must differ"
