@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use gh_proxy::{config::Config, egress::Egress, http::App, ssh};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::{net::TcpListener, sync::watch};
@@ -13,6 +13,18 @@ struct Args {
     /// Validate configuration and proxy environment without binding sockets.
     #[arg(long)]
     check: bool,
+    #[command(subcommand)]
+    command: Option<ClientCommand>,
+}
+#[derive(Subcommand)]
+enum ClientCommand {
+    /// Reuse this client's GitHub credentials for one explicitly configured gateway origin.
+    Credential {
+        #[arg(long)]
+        gateway: url::Url,
+        #[arg(value_enum)]
+        operation: gh_proxy::credential::Operation,
+    },
 }
 async fn signal() {
     #[cfg(unix)]
@@ -32,13 +44,16 @@ async fn signal() {
 }
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = Args::parse();
+    if let Some(ClientCommand::Credential { gateway, operation }) = args.command {
+        return gh_proxy::credential::run(gateway, operation).await;
+    }
     // Only application event fields are logged; library debug logs may expose URLs.
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().json())
         .with(Targets::new().with_target("gh_proxy", tracing::Level::INFO))
         .init();
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-    let args = Args::parse();
     let config = Arc::new(Config::load(&args.config)?);
     let egress = Arc::new(Egress::from_config(&config)?);
     let tls = if let Some(tls) = &config.tls {
