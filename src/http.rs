@@ -159,6 +159,7 @@ async fn forward(app: &App, route: &Route, request: Request) -> Result<Response>
         .clone()
         .try_acquire_owned()
         .map_err(|_| anyhow::anyhow!("request limit reached"))?;
+    let deadline = tokio::time::Instant::now() + app.egress.timeout;
     let (parts, body) = request.into_parts();
     let mut headers = request_headers(&parts.headers);
     // Send only canonical media types; prevent content negotiation bypassing download policy.
@@ -180,6 +181,7 @@ async fn forward(app: &App, route: &Route, request: Request) -> Result<Response>
     let mut response = client
         .request(parts.method.clone(), route.target.clone())
         .headers(headers.clone())
+        .timeout(deadline.saturating_duration_since(tokio::time::Instant::now()))
         .body(body)
         .send()
         .await
@@ -203,6 +205,7 @@ async fn forward(app: &App, route: &Route, request: Request) -> Result<Response>
         response = client
             .request(parts.method.clone(), next.clone())
             .headers(headers.clone())
+            .timeout(deadline.saturating_duration_since(tokio::time::Instant::now()))
             .send()
             .await
             .map_err(|_| anyhow::anyhow!("attachment request failed"))?;
@@ -241,7 +244,13 @@ async fn forward(app: &App, route: &Route, request: Request) -> Result<Response>
                 output_headers.insert("link", v);
             }
         }
-        Body::from(bytes)
+        Body::from_stream(
+            futures_util::stream::iter([Ok::<_, std::io::Error>(axum::body::Bytes::from(bytes))])
+                .map(move |chunk| {
+                    let _keep_slot = &permit;
+                    chunk
+                }),
+        )
     } else {
         Body::from_stream(response.bytes_stream().map(move |chunk| {
             let _keep_slot = &permit;

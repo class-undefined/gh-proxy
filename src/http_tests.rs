@@ -33,6 +33,9 @@ impl Drop for Fixture {
     }
 }
 async fn fixture() -> Fixture {
+    fixture_with_limit(128).await
+}
+async fn fixture_with_limit(limit: usize) -> Fixture {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let cert = rcgen::generate_simple_self_signed(vec![
         "api.github.com".into(),
@@ -119,6 +122,7 @@ async fn fixture() -> Fixture {
     .unwrap();
     egress.test_root = Some(root);
     let mut config: Config = toml::from_str(include_str!("../config/example.toml")).unwrap();
+    config.max_connections = limit;
     let r = &mut config.repositories[0];
     r.write = true;
     r.release.create = true;
@@ -251,4 +255,37 @@ async fn git_rpc_streams_and_unknown_routes_never_reach_upstream() {
     .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(f.seen.lock().unwrap().len(), count);
+}
+
+#[tokio::test]
+async fn metadata_body_holds_capacity_until_consumed_or_dropped() {
+    let f = fixture_with_limit(1).await;
+    let first = call(
+        &f,
+        "GET",
+        "/api/github/repos/class-undefined/gh-proxy/releases",
+        vec![],
+        false,
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let blocked = call(
+        &f,
+        "GET",
+        "/api/github/repos/class-undefined/gh-proxy/releases",
+        vec![],
+        false,
+    )
+    .await;
+    assert_eq!(blocked.status(), StatusCode::BAD_GATEWAY);
+    drop(first);
+    let next = call(
+        &f,
+        "GET",
+        "/api/github/repos/class-undefined/gh-proxy/releases",
+        vec![],
+        false,
+    )
+    .await;
+    assert_eq!(next.status(), StatusCode::OK);
 }
