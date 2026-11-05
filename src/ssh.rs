@@ -398,9 +398,13 @@ mod tests {
     async fn downstream_rejects_ip_and_other_commands() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let (observed, received) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
             let (mut s, _) = listener.accept().await.unwrap();
             assert!(request(&mut s).await.is_err());
+            // Closing a socket with unread rejected payload can reset it on Windows,
+            // discarding the reply before the fixture's client has observed it.
+            received.await.unwrap();
         });
         let mut s = TcpStream::connect(addr).await.unwrap();
         s.write_all(&[5, 1, 0]).await.unwrap();
@@ -413,6 +417,7 @@ mod tests {
         let mut reply = [0; 10];
         s.read_exact(&mut reply).await.unwrap();
         assert_eq!(reply[1], 7);
+        observed.send(()).unwrap();
         task.await.unwrap();
     }
 }
