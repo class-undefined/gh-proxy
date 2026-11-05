@@ -131,6 +131,16 @@ pub(crate) fn respond(
             include_str!("../web/style.css"),
         )
             .into_response(),
+        "/_ui/settings.js" => (
+            [("content-type", "text/javascript; charset=utf-8")],
+            include_str!("../web/settings.js"),
+        )
+            .into_response(),
+        "/_ui/settings-model.js" => (
+            [("content-type", "text/javascript; charset=utf-8")],
+            include_str!("../web/settings-model.js"),
+        )
+            .into_response(),
         "/_ui/app.js" => (
             [("content-type", "text/javascript; charset=utf-8")],
             include_str!("../web/app.js"),
