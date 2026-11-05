@@ -89,6 +89,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ matrix.runner }}-${{ matrix.target }}
+          cache-on-failure: true
       - run: cargo test --locked --target "$TARGET"
       - run: cargo build --locked --release --target "$TARGET"
       - name: Smoke test the native executable

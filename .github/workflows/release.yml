@@ -90,6 +90,9 @@ jobs:
             gh release create "$TAG" --verify-tag --draft --generate-notes --title "$TAG" "${flags[@]}"
           fi
           gh release upload "$TAG" dist/* --clobber
+          gh release view "$TAG" --json assets --jq '.assets[].name' | sort > remote-assets.txt
+          find dist -maxdepth 1 -type f -printf '%f\n' | sort > expected-assets.txt
+          diff -u expected-assets.txt remote-assets.txt
           if [[ "$PRERELEASE" == true ]]; then
             gh release edit "$TAG" --draft=false --prerelease --latest=false
           else
