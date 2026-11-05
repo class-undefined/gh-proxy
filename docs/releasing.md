@@ -76,3 +76,20 @@ python3 scripts/release.py package --target aarch64-apple-darwin --version 0.1.0
 ```
 
 准备齐六个平台的同版本压缩包后，执行 `python3 scripts/release.py checksums --version 0.1.0`。缺少目标、多出文件或包内出现配置文件时校验失败。默认输出 `dist/`，已加入 Git 忽略规则。
+
+## 旧版 Linux 的静态构建
+
+对于 CentOS 7 等较旧的 glibc 环境，可手动运行 Portable Linux workflow，构建不依赖系统动态加载器或共享库的 musl 二进制：
+
+```sh
+gh workflow run portable.yml --ref main -f target=x86_64-unknown-linux-musl
+# ARM64 可将 target 改为 aarch64-unknown-linux-musl。
+gh run list --workflow portable.yml
+gh run download <RUN_ID> --name portable-x86_64-unknown-linux-musl --dir portable-download
+cd portable-download
+sha256sum -c SHA256SUMS
+chmod 755 gh-proxy
+./gh-proxy --version
+```
+
+该流程运行对应 target 的 Rust 测试与 release 构建，检查 ELF 不含动态解释器及共享库依赖，提供二进制、SHA256SUMS 和源码版本信息，artifact 保留 30 天。安装到旧系统前仍应在目标内核上执行运行检查。此构建入口不修改已有正式 Release 的资产。
