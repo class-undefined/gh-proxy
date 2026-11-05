@@ -58,6 +58,14 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    if !egress.http_available() || (!config.ssh_targets.is_empty() && !egress.ssh_available()) {
+        tracing::warn!(
+            event = "egress_not_configured",
+            http_ready = egress.http_available(),
+            ssh_ready = egress.ssh_available(),
+            direct = config.direct
+        );
+    }
     let control = if config.web_enabled {
         gh_proxy::control::Control::managed(config.clone(), egress.clone(), &args.config)?
     } else {

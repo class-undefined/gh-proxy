@@ -1,4 +1,5 @@
-use anyhow::{Result, bail, ensure};
+use crate::fault::Fault;
+use anyhow::{Result, ensure};
 use reqwest::{
     Client, Proxy,
     dns::{Addrs, Name, Resolve, Resolving},
@@ -152,10 +153,17 @@ impl Egress {
             match url.scheme() {
                 "http" => self.http.as_ref(),
                 "https" => self.https.as_ref(),
-                _ => bail!("unsupported target protocol"),
+                _ => return Err(Fault::UnsupportedProtocol.into()),
             }
         };
-        ensure!(selected.is_some() || self.direct, "direct egress denied");
+        if selected.is_none() && !self.direct {
+            return Err(if self.bypass(url) {
+                Fault::DirectBypassDenied
+            } else {
+                Fault::EgressNotConfigured
+            }
+            .into());
+        }
         let mut builder = Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
@@ -165,10 +173,7 @@ impl Egress {
             .user_agent("gh-proxy/0.1");
         if let Some(proxy) = selected {
             // Explicit proxy overrides all library/environment inference; no direct fallback exists.
-            builder = builder.proxy(
-                Proxy::all(proxy.as_str())
-                    .map_err(|_| anyhow::anyhow!("invalid HTTP proxy configuration"))?,
-            );
+            builder = builder.proxy(Proxy::all(proxy.as_str()).map_err(|_| Fault::InvalidProxy)?);
             // Upstream proxy may be on loopback/private networks. Its DNS is trusted.
             builder = builder.dns_resolver(Arc::new(ProxyResolver {
                 host: proxy.host_str().unwrap_or("").to_string(),
@@ -178,9 +183,7 @@ impl Egress {
         if let Some(root) = &self.test_root {
             builder = builder.add_root_certificate(root.clone());
         }
-        builder
-            .build()
-            .map_err(|_| anyhow::anyhow!("cannot initialize HTTP transport"))
+        Ok(builder.build().map_err(|_| Fault::TransportInit)?)
     }
     pub fn ssh_available(&self) -> bool {
         self.all.is_some() || self.direct

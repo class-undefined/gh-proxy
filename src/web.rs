@@ -252,7 +252,8 @@ mod tests {
     use std::{net::SocketAddr, sync::Arc, time::Duration};
     use tower::ServiceExt;
     fn app(enabled: bool) -> App {
-        let mut config: Config = toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
+        let mut config: Config =
+            toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
         config.web_enabled = enabled;
         let egress = Egress::from_lookup(
             |key| match key {

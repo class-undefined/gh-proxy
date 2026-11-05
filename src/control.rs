@@ -513,7 +513,7 @@ mod tests {
             )
             .await
             .status(),
-            StatusCode::BAD_GATEWAY
+            StatusCode::SERVICE_UNAVAILABLE
         );
         let response = call(app, "GET", "/_ui/status", None, "", vec![]).await;
         let status = String::from_utf8(

@@ -77,13 +77,45 @@ async fn fixture_with_limit(limit: usize) -> Fixture {
                     async move {
                         let method = req.method().to_string();
                         let path = req.uri().path().to_string();
-                        let auth = req.headers().contains_key("authorization");
+                        let authorization = req.headers().get("authorization").cloned();
+                        let auth = authorization.is_some();
                         let body = req.into_body().collect().await.unwrap().to_bytes();
                         seen.lock()
                             .unwrap()
                             .push((method.clone(), path.clone(), auth, body.len()));
                         let mut response = hyper::Response::builder();
-                        let bytes = if path.starts_with("/github-production-release-asset/") {
+                        let bytes = if path.ends_with("/info/refs") {
+                            if authorization
+                                .as_ref()
+                                .is_some_and(|v| v == "Basic Zml4dHVyZTp0b2tlbg==")
+                            {
+                                response = response.header(
+                                    "content-type",
+                                    "application/x-git-upload-pack-advertisement",
+                                );
+                                Bytes::from_static(b"fixture-git-advertisement")
+                            } else {
+                                response = response
+                                    .status(401)
+                                    .header("www-authenticate", "Basic realm=\"GitHub\"")
+                                    .header("www-authenticate", "Bearer realm=\"fixture\"");
+                                Bytes::from_static(b"Authentication required")
+                            }
+                        } else if path == "/repos/class-undefined/gh-proxy/releases/401" {
+                            response = response
+                                .status(401)
+                                .header("www-authenticate", "Basic realm=\"GitHub\"");
+                            Bytes::from_static(b"Bad credentials")
+                        } else if path == "/repos/class-undefined/gh-proxy/releases/403" {
+                            response = response
+                                .status(403)
+                                .header(
+                                    "x-github-sso",
+                                    "required; url=https://github.com/orgs/fixture/sso",
+                                )
+                                .header("x-github-request-id", "fixture-request");
+                            Bytes::from_static(b"SSO authorization required")
+                        } else if path.starts_with("/github-production-release-asset/") {
                             assert!(!auth, "credential leaked to attachment CDN");
                             response = response.header("content-type", "application/octet-stream");
                             Bytes::from(vec![0x5a; 10 * 1024 * 1024])
@@ -121,7 +153,8 @@ async fn fixture_with_limit(limit: usize) -> Fixture {
     )
     .unwrap();
     egress.test_root = Some(root);
-    let mut config: Config = toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
+    let mut config: Config =
+        toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
     config.max_connections = limit;
     let r = &mut config.repositories[0];
     r.write = true;
@@ -277,7 +310,7 @@ async fn metadata_body_holds_capacity_until_consumed_or_dropped() {
         false,
     )
     .await;
-    assert_eq!(blocked.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(blocked.status(), StatusCode::SERVICE_UNAVAILABLE);
     drop(first);
     let next = call(
         &f,
@@ -288,4 +321,125 @@ async fn metadata_body_holds_capacity_until_consumed_or_dropped() {
     )
     .await;
     assert_eq!(next.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn git_credentials_challenges_and_api_auth_failures_are_preserved() {
+    let f = fixture().await;
+    for auth in [
+        None,
+        Some("Basic aW52YWxpZDppbnZhbGlk"),
+        Some("Basic Zml4dHVyZTp0b2tlbg=="),
+    ] {
+        let mut request = Request::builder()
+            .uri("/class-undefined/gh-proxy.git/info/refs?service=git-upload-pack")
+            .body(Body::empty())
+            .unwrap();
+        if let Some(auth) = auth {
+            request
+                .headers_mut()
+                .insert("authorization", auth.parse().unwrap());
+        }
+        request
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()));
+        let response = f.app.clone().router().oneshot(request).await.unwrap();
+        let accepted = auth == Some("Basic Zml4dHVyZTp0b2tlbg==");
+        assert_eq!(
+            response.status(),
+            if accepted {
+                StatusCode::OK
+            } else {
+                StatusCode::UNAUTHORIZED
+            }
+        );
+        assert!(!response.headers().contains_key("x-gh-proxy-error"));
+        if !accepted {
+            assert_eq!(
+                response
+                    .headers()
+                    .get_all("www-authenticate")
+                    .iter()
+                    .count(),
+                2
+            );
+            assert_eq!(
+                to_bytes(response.into_body(), 1024).await.unwrap(),
+                "Authentication required"
+            );
+        }
+    }
+    for status in [401, 403] {
+        let response = call(
+            &f,
+            "GET",
+            &format!("/api/github/repos/class-undefined/gh-proxy/releases/{status}"),
+            vec![],
+            false,
+        )
+        .await;
+        assert_eq!(response.status().as_u16(), status);
+        assert!(!response.headers().contains_key("x-gh-proxy-error"));
+        if status == 401 {
+            assert!(response.headers().contains_key("www-authenticate"));
+        } else {
+            assert!(response.headers().contains_key("x-github-sso"));
+        }
+        // Plain-text upstream auth failures must not be parsed as successful JSON metadata.
+        assert!(
+            !to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
+
+#[tokio::test]
+async fn connect_proxy_auth_failure_is_diagnostic_and_redacted() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = Vec::new();
+        while !bytes.ends_with(b"\r\n\r\n") {
+            bytes.push(socket.read_u8().await.unwrap());
+        }
+        assert!(
+            String::from_utf8_lossy(&bytes)
+                .to_lowercase()
+                .contains("proxy-authorization: basic ")
+        );
+        socket
+            .write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")
+            .await
+            .unwrap();
+    });
+    let egress = Egress::from_lookup(
+        |k| (k == "HTTPS_PROXY").then(|| format!("http://fixture-user:fixture-secret@{addr}")),
+        false,
+        Duration::from_secs(2),
+    )
+    .unwrap();
+    let config: Config = toml::from_str(include_str!("../tests/fixtures/gateway.toml")).unwrap();
+    let mut request = Request::builder()
+        .uri("/class-undefined/gh-proxy.git/info/refs?service=git-upload-pack")
+        .body(Body::empty())
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()));
+    let response = App::new(Arc::new(config), Arc::new(egress))
+        .router()
+        .oneshot(request)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response.headers()["x-gh-proxy-error"],
+        "upstream_proxy_auth_required"
+    );
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert!(!String::from_utf8_lossy(&body).contains("fixture-"));
+    task.await.unwrap();
 }

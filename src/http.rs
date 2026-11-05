@@ -1,9 +1,9 @@
+use crate::fault::Fault;
 use crate::{
     config::Config,
     egress::Egress,
     policy::{self, Kind, Operation, Route},
 };
-use anyhow::{Result, ensure};
 use axum::{
     Router,
     body::Body,
@@ -72,10 +72,10 @@ fn request_headers(input: &HeaderMap) -> HeaderMap {
         "if-range",
         "x-github-api-version",
     ] {
-        if let Some(value) = input.get(key)
-            && !nominated(input, key)
-        {
-            headers.insert(axum::http::HeaderName::from_static(key), value.clone());
+        if !nominated(input, key) {
+            for value in input.get_all(key) {
+                headers.append(axum::http::HeaderName::from_static(key), value.clone());
+            }
         }
     }
     headers
@@ -97,11 +97,13 @@ fn response_headers(input: &HeaderMap) -> HeaderMap {
         "x-ratelimit-reset",
         "retry-after",
         "www-authenticate",
+        "x-github-sso",
+        "x-github-request-id",
     ] {
-        if let Some(value) = input.get(key)
-            && !nominated(input, key)
-        {
-            headers.insert(axum::http::HeaderName::from_static(key), value.clone());
+        if !nominated(input, key) {
+            for value in input.get_all(key) {
+                headers.append(axum::http::HeaderName::from_static(key), value.clone());
+            }
         }
     }
     headers
@@ -148,25 +150,29 @@ fn rewrite_json(value: &mut serde_json::Value, public: &str, repository: &str) {
         _ => {}
     }
 }
-async fn bounded_json(response: reqwest::Response) -> Result<serde_json::Value> {
+async fn bounded_json(response: reqwest::Response) -> Result<serde_json::Value, Fault> {
     let mut bytes = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| anyhow::anyhow!("upstream body failed"))?;
-        ensure!(
-            bytes.len() + chunk.len() <= 8 * 1024 * 1024,
-            "API metadata exceeds 8 MiB"
-        );
+        let chunk = chunk.map_err(Fault::transport)?;
+        if bytes.len() + chunk.len() > 8 * 1024 * 1024 {
+            return Err(Fault::InvalidResponse);
+        }
         bytes.extend_from_slice(&chunk);
     }
-    serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid API JSON"))
+    serde_json::from_slice(&bytes).map_err(|_| Fault::InvalidResponse)
 }
-async fn forward(app: &App, route: &Route, request: Request) -> Result<Response> {
+async fn forward(
+    app: &App,
+    route: &Route,
+    request: Request,
+    request_id: u64,
+) -> Result<Response, Fault> {
     let permit = app
         .slots
         .clone()
         .try_acquire_owned()
-        .map_err(|_| anyhow::anyhow!("request limit reached"))?;
+        .map_err(|_| Fault::Busy)?;
     let deadline = tokio::time::Instant::now() + app.egress.timeout;
     let (parts, body) = request.into_parts();
     let mut headers = request_headers(&parts.headers);
@@ -181,7 +187,11 @@ async fn forward(app: &App, route: &Route, request: Request) -> Result<Response>
             }),
         );
     }
-    let client = app.egress.client(&route.target)?;
+    let client = app.egress.client(&route.target).map_err(|e| {
+        e.downcast_ref::<Fault>()
+            .copied()
+            .unwrap_or(Fault::TransportInit)
+    })?;
     let body = reqwest::Body::wrap_stream(
         body.into_data_stream()
             .map(|c| c.map_err(|_| std::io::Error::other("client body failed"))),
@@ -193,36 +203,50 @@ async fn forward(app: &App, route: &Route, request: Request) -> Result<Response>
         .body(body)
         .send()
         .await
-        .map_err(|_| anyhow::anyhow!("upstream request failed"))?;
+        .map_err(Fault::transport)?;
+    if response.status() == StatusCode::PROXY_AUTHENTICATION_REQUIRED {
+        return Err(Fault::ProxyAuthRequired);
+    }
     let mut previous = route.target.clone();
     for hop in 0..=5 {
         if !response.status().is_redirection() || response.status() == StatusCode::NOT_MODIFIED {
             break;
         }
-        ensure!(hop < 5, "too many redirects");
+        if hop >= 5 {
+            return Err(Fault::RedirectLimit);
+        }
         let location = response
             .headers()
             .get("location")
             .and_then(|s| s.to_str().ok())
-            .ok_or_else(|| anyhow::anyhow!("missing redirect location"))?;
-        let next = policy::redirect_target(route, &previous, location)?;
+            .ok_or(Fault::InvalidResponse)?;
+        let next = policy::redirect_target(route, &previous, location)
+            .map_err(|_| Fault::RedirectDenied)?;
         if previous.host_str() != next.host_str() {
             headers.remove("authorization");
         }
-        let client = app.egress.client(&next)?;
+        let client = app.egress.client(&next).map_err(|e| {
+            e.downcast_ref::<Fault>()
+                .copied()
+                .unwrap_or(Fault::TransportInit)
+        })?;
         response = client
             .request(parts.method.clone(), next.clone())
             .headers(headers.clone())
             .timeout(deadline.saturating_duration_since(tokio::time::Instant::now()))
             .send()
             .await
-            .map_err(|_| anyhow::anyhow!("attachment request failed"))?;
+            .map_err(Fault::transport)?;
         previous = next;
     }
     let status = response.status();
+    if status == StatusCode::PROXY_AUTHENTICATION_REQUIRED {
+        return Err(Fault::ProxyAuthRequired);
+    }
     let mut output_headers = response_headers(response.headers());
     let json = matches!(route.kind, Kind::Api | Kind::Upload)
         && route.operation != Operation::Download
+        && status.is_success()
         && parts.method != Method::HEAD
         && status != StatusCode::NO_CONTENT
         && status != StatusCode::NOT_MODIFIED;
@@ -239,7 +263,7 @@ async fn forward(app: &App, route: &Route, request: Request) -> Result<Response>
             app.config.public_url.as_str(),
             &route.repository,
         );
-        let bytes = serde_json::to_vec(&value)?;
+        let bytes = serde_json::to_vec(&value).map_err(|_| Fault::InvalidResponse)?;
         output_headers.remove("content-length");
         output_headers.remove("etag");
         output_headers.insert("content-type", HeaderValue::from_static("application/json"));
@@ -260,9 +284,20 @@ async fn forward(app: &App, route: &Route, request: Request) -> Result<Response>
                 }),
         )
     } else {
+        let runtime = app.runtime.clone();
         Body::from_stream(response.bytes_stream().map(move |chunk| {
             let _keep_slot = &permit;
-            chunk.map_err(|_| std::io::Error::other("upstream body failed"))
+            chunk.map_err(|e| {
+                let fault = Fault::transport(e);
+                runtime.failed.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(
+                    request_id,
+                    entry = "http",
+                    phase = "response_body",
+                    error_code = fault.code()
+                );
+                std::io::Error::other(fault)
+            })
         }))
     };
     let mut out = Response::new(body);
@@ -347,15 +382,16 @@ async fn handle(
             return (StatusCode::FORBIDDEN, "request denied\n").into_response();
         }
     };
-    let response = match forward(&app, &route, request).await {
+    let response = match forward(&app, &route, request, id).await {
         Ok(response) => response,
-        Err(_) => {
+        Err(fault) => {
             app.runtime.failed.fetch_add(1, Ordering::Relaxed);
-            (
-                StatusCode::BAD_GATEWAY,
-                "upstream unavailable or response rejected\n",
-            )
-                .into_response()
+            tracing::warn!(request_id = id, entry = "http", error_code = fault.code());
+            let mut response = (fault.status(), format!("gh-proxy: {fault}\n")).into_response();
+            response
+                .headers_mut()
+                .insert("x-gh-proxy-error", HeaderValue::from_static(fault.code()));
+            response
         }
     };
     tracing::info!(request_id=id,entry="http",repository=%route.repository,operation=?route.operation,status=response.status().as_u16(),elapsed_ms=start.elapsed().as_millis() as u64);
@@ -405,8 +441,22 @@ mod tests {
             )
             .await
             .status(),
-            StatusCode::BAD_GATEWAY
+            StatusCode::SERVICE_UNAVAILABLE
         );
+    }
+    #[tokio::test]
+    async fn missing_egress_reports_configuration_error_before_authentication() {
+        let response = call(
+            "127.0.0.1:1234",
+            "/class-undefined/gh-proxy.git/info/refs?service=git-upload-pack",
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers()["x-gh-proxy-error"],
+            "egress_not_configured"
+        );
+        assert!(!response.headers().contains_key("www-authenticate"));
     }
     #[tokio::test]
     async fn http2_pseudo_headers_are_not_absolute_proxy_requests() {
@@ -418,7 +468,7 @@ mod tests {
             .insert(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>().unwrap()));
         assert_eq!(
             app().router().oneshot(request).await.unwrap().status(),
-            StatusCode::BAD_GATEWAY
+            StatusCode::SERVICE_UNAVAILABLE
         );
         let response = call("127.0.0.1:1234","https://gateway.example/class-undefined/gh-proxy.git/info/refs?service=git-upload-pack").await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);

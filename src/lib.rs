@@ -5,6 +5,7 @@ pub mod policy;
 pub mod ssh;
 
 pub mod control;
+pub mod fault;
 #[cfg(test)]
 mod http_tests;
 mod web;
