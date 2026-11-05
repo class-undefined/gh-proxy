@@ -31,20 +31,27 @@ HTTP 明文仅允许绑定 loopback，用于开发或本地 TLS 反向代理。�
 
 启动网关后，访问配置中的 `public_url` 根路径或 `/ui`：示例为 `http://127.0.0.1:8080/`。
 
-控制台提供四个视图：
+控制台按「概览、仓库、设置、接入」组织。设置页支持添加/移除仓库、逐项编辑 Git/Release 权限、客户端 CIDR、SSH 目标、出站代理、直连开关、并发及请求时限；保存后更新配置文件，并热应用于后续 HTTP 请求和新建 SSH 连接。已建立的请求/隧道继续使用原策略，修改并发上限不会中断现有连接。
 
-- 服务概览：进程运行时长、路由配置就绪状态、HTTP 代理请求/拒绝/转发失败计数。
-- 仓库策略：按名称搜索、按只读/读写筛选，以及逐项展示 Release 权限。
-- 访问与出站：来源 CIDR、SSH 精确目标、直连策略、服务并发和时限。
-- 接入指南：根据当前仓库及权限生成 Git、SSH 和 Release 命令，并提供复制按钮。带 Token 的 API 命令仅在 HTTPS public_url 下生成。
+首次启动在配置文件同目录创建同名 `.admin-token`，权限为 `0600`。例如使用 `config.local.toml` 时，在服务主机读取：
 
-页面与资源全部嵌入 Rust 二进制，不依赖 CDN、外部字体、前端构建服务或生产环境 Node.js。编辑 `web/` 后需重新执行 Cargo 构建。开发前端测试需要 Node.js 20+，命令为 `node --test web/tests/*.test.mjs`。
+```sh
+cat config.local.admin-token
+```
 
-`GET /_ui/status` 为控制台提供显式脱敏的状态投影，不返回代理 URL、凭据、证书或私钥文件路径。控制台、静态资源和状态接口共用 `clients` 白名单，校验请求 Host 与 `public_url` 的主机及端口，并只允许 GET/HEAD。通过反向代理访问时应保留公开 Host；使用其他主机名或端口访问控制台会返回 404。
+将密钥输入设置页解锁。也可通过 `GH_PROXY_ADMIN_TOKEN` 指定 32–256 个可打印 ASCII 字符的密钥，此时不生成密钥文件。解锁状态仅保留于当前页面内存；锁定或刷新后需重新输入，浏览器不由应用主动持久化密钥。生产管理入口必须使用 HTTPS；HTTP 仅限本机开发。
 
-页面每 15 秒刷新，也可手动刷新；切到后台时暂停轮询。断连会显示旧数据提示，恢复后重新加载。路由“配置就绪”仅表示具备选路配置，不代表已探测 GitHub/代理可达。所有计数从进程启动开始累计，不持久化；仅计入来源校验后的 HTTP 代理请求，不含控制台、页面资源、favicon、健康检查或 SSH 会话。转发失败计数对应网关返回 502，不包含上游自己的 4xx/5xx，也不包含响应头之后的流中断。
+`GET /_ui/config` 和 `PUT /_ui/config` 使用 `Authorization: Bearer <管理密钥>`。写入还要求匹配 public_url 的 Origin 和 JSON 内容类型，最大 1 MiB。保存先校验内容与当前客户端仍被允许，再按版本检查冲突、原子替换文件并发布策略快照。新文件权限为 `0600`。TOML 会规范化重写，原注释不保留；配置文件及其父目录均需允许服务用户写入。旧页面版本返回 409，重新加载配置后再提交；检测到外部直接改文件则拒绝覆盖，需要重启服务读取外部配置。校验或存储失败不改变运行中的策略。
 
-设置顶层 `web_enabled=false` 并重启可关闭控制台与状态接口。控制台是只读界面，策略变更仍通过 TOML 配置及重启完成。
+管理读取不返回已保存代理的用户名/密码；原地址未改动时保留凭据，可显式清除或输入包含新凭据的代理 URL 来替换。管理密钥、代理 URL 和请求体不进入应用日志。配置文件可能包含代理凭据，请放在私有目录，不要提交到 Git。
+
+监听地址、public_url、TLS 文件和 web_enabled 仍属于启动配置，不通过页面修改。直接改文件、环境变量或证书后需要重启；网页保存的运行策略无需重启。设置 `web_enabled=false` 并重启可关闭控制台和管理接口。
+
+页面与资源全部嵌入 Rust 二进制，不依赖 CDN、外部字体或生产 Node.js。编辑 `web/` 后重新构建；前端测试使用 Node.js 20+：`node --test web/tests/*.test.mjs`。
+
+`GET /_ui/status` 提供脱敏状态，不返回代理 URL、管理密钥、证书或私钥路径。所有 UI 入口共用 clients 白名单，并校验 Host 与 public_url 的主机、端口；反向代理应保留公开 Host。除管理配置接口外，页面与状态只接受 GET/HEAD。
+
+页面每 15 秒刷新，后台暂停轮询，编辑中的草稿不被轮询覆盖。入口的「已配置」只表示配置上具备路由，不代表已探测 GitHub 连通性。计数从进程启动累计，只统计来源校验后的 HTTP 代理请求，不含页面、健康检查或 SSH；转发失败对应网关自身返回的 502，不含上游 4xx/5xx 或响应头后的流中断。
 
 ## 配置语义
 
@@ -55,7 +62,7 @@ HTTP 明文仅允许绑定 loopback，用于开发或本地 TLS 反向代理。�
 | `http_listen`、`socks_listen` | 两个不同的监听地址 |
 | `public_url` | 对外根地址，无路径前缀、查询或凭据；用于重写 API URL |
 | `clients` | TCP 对端 IP 的 CIDR 白名单，支持 IPv4/IPv6 |
-| `web_enabled` | 是否开放内置只读控制台，默认 true |
+| `web_enabled` | 是否开放内置控制台，默认 true |
 | `direct` | 是否允许无代理或 NO_PROXY 命中时直连，默认 false |
 | `max_connections` | HTTP 活跃转发和 SSH 隧道分别使用的上限，默认 128 |
 | `timeout_seconds` | HTTP 完整出站请求与 SSH 转发会话的时长上限，默认 300，最大 86400 |
@@ -63,6 +70,7 @@ HTTP 明文仅允许绑定 loopback，用于开发或本地 TLS 反向代理。�
 | `repositories[].name` | 精确 `owner/repo`，不含 `.git`，不区分大小写 |
 | `repositories[].write` | 是否允许 receive-pack，包括分支和 tag 推送 |
 | `repositories[].release` | query/create/update/upload/download/delete 分别授权，默认 false |
+| `upstream.http_proxy` / `https_proxy` / `all_proxy` / `no_proxy` | 可选代理覆盖，未设置时继承环境变量，空字符串停用对应项 |
 | `ssh_targets` | 首期只接受 `github.com:22`、`ssh.github.com:443`，需逐项配置 |
 
 来源始终按 TCP 对端判定，不信任 `X-Forwarded-For`。部署在反向代理之后时，原始客户端来源 ACL 必须在反向代理执行，网关只允许该代理对端；原生 TLS 部署可直接使用网关客户端 ACL。
@@ -78,7 +86,7 @@ SSH 握手上限 10 秒，建立出站连接上限 15 秒；HTTP 建连上限 15
 | SSH | ALL_PROXY / all_proxy，限定 socks5 或 socks5h |
 | HTTP(S) 绕过 | NO_PROXY / no_proxy |
 
-大写存在时始终优先，包括空值。空值表示未配置；非法 URL 直接报错，错误不回显 URL。代理 URL 支持用户名和密码，特殊字符使用 URL 百分号编码，显式指定 SOCKS 端口。HTTP(S) 不继承 ALL_PROXY 或其他协议的代理；SSH 不应用 NO_PROXY。
+控制台或 `[upstream]` 显式配置优先于环境变量：未设置字段时继承环境变量，空字符串表示停用，非空值替代对应变量。继承环境时，大写存在始终优先，包括空值。空值表示未配置；非法 URL 直接报错，错误不回显 URL。代理 URL 支持用户名和密码，特殊字符使用 URL 百分号编码，显式指定 SOCKS 端口。HTTP(S) 不继承 ALL_PROXY 或其他协议的代理；SSH 不应用 NO_PROXY。
 
 NO_PROXY 支持逗号分隔的 `*`、域名及子域名、前导点域名后缀、IP、可选端口；IPv6 带端口使用 `[::1]:443`。不支持 CIDR 或 URL，配置这类规则会报错。域名在标签边界匹配，`github.com` 不匹配 `evil-github.com`。
 
@@ -180,7 +188,8 @@ JSON 响应中的 API URL、upload_url 模板、browser_download_url 会改写�
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin gh-proxy
 sudo install -m 0755 target/release/gh-proxy /usr/local/bin/gh-proxy
 sudo install -d -o root -g gh-proxy -m 0750 /etc/gh-proxy
-sudo install -o root -g gh-proxy -m 0640 config/example.toml /etc/gh-proxy/config.toml
+sudo install -d -o gh-proxy -g gh-proxy -m 0700 /var/lib/gh-proxy
+sudo install -o gh-proxy -g gh-proxy -m 0600 config/example.toml /var/lib/gh-proxy/config.toml
 sudo install -o root -g root -m 0600 deploy/proxy.env.example /etc/gh-proxy/proxy.env
 sudo install -m 0644 deploy/gh-proxy.service /etc/systemd/system/gh-proxy.service
 ```
@@ -195,7 +204,7 @@ sudo journalctl -u gh-proxy -f
 sudo systemctl restart gh-proxy
 ```
 
-配置和环境仅在启动时读取，修改后需重启，TLS 证书续期后同样需重启。SIGINT/SIGTERM 停止接收连接，最多等待 10 秒完成活跃请求或隧道。
+首次启动后通过 `sudo cat /var/lib/gh-proxy/config.admin-token` 获取管理密钥。已有部署升级时，应先将原配置迁移到 `/var/lib/gh-proxy/config.toml` 并设置为服务用户所有、0600；不要用示例覆盖业务配置。网页保存会即时应用运行策略；直接改配置文件、启动环境、监听或 TLS 证书后仍需重启。SIGINT/SIGTERM 停止接收连接，最多等待 10 秒完成活跃请求或隧道。
 
 `/health/live` 表示进程可服务，`/health/ready` 表示所启用入口有配置上的出站路由，不代表代理或 GitHub 当前可达；它们也受客户端白名单限制。使用授权公开仓库读取进行外部连通性监测，避免探针触发写入。
 

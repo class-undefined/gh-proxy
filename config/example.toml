@@ -4,7 +4,7 @@ socks_listen = "127.0.0.1:1080"
 public_url = "http://127.0.0.1:8080"
 clients = ["127.0.0.1/32", "::1/128"]
 direct = false
-# Read-only console at public_url; source ACL and public host validation also apply.
+# Console at public_url; configuration edits require the administrator key.
 web_enabled = true
 max_connections = 128
 timeout_seconds = 300
@@ -32,3 +32,10 @@ update = false
 upload = false
 download = true
 delete = false
+
+# Optional overrides. Omit a field to inherit its environment variable; "" disables it.
+# [upstream]
+# http_proxy = "http://127.0.0.1:7890"
+# https_proxy = "http://127.0.0.1:7890"
+# all_proxy = "socks5h://127.0.0.1:7891"
+# no_proxy = "localhost,127.0.0.1"
