@@ -115,3 +115,14 @@ Rust 31 个测试、前端 9 个测试、格式、Clippy 和 release 构建通�
 实际私有仓库经现有网关分别完成 HTTP/SSH `ls-remote` 和浅克隆：HTTP 使用客户端已有 GitHub 登录；SSH 使用已有客户端密钥且保留主机密钥检查。临时克隆随后清理，没有执行 push、tag 或 Release 写入。新构建另在独立临时 TLS 网关完成公开仓库 clone/fetch、带客户端 Token 的 API 查询、SSH 平台身份认证、未授权仓库拒绝及 SIGTERM 退出；测试日志未出现 Token。
 
 运行中的业务进程只热应用了上游配置；新的错误诊断和控制台界面需重启该进程加载。认证角色、客户端 helper 配置和错误码见 [认证文档](authentication.md)。
+
+
+## 2026-11-05：内置 SSH 客户端隧道
+
+新增 `gh-proxy connect --socks <host:port> <目标域名> <端口>`，作为 OpenSSH ProxyCommand 的标准输入输出传输。SOCKS5 DOMAIN CONNECT 按 [RFC 1928](https://www.rfc-editor.org/rfc/rfc1928) 实现，目标域名不在客户端解析；只连接显式指定的网关，不读取服务端配置或客户端代理环境变量，不回退直连。错误只写 stderr，传输期不启用服务端日志。默认 15 秒时限覆盖网关连接与 SOCKS 握手，后续会话由 SSH 和服务端管理。
+
+本地验证共 39 个 Rust 单元测试、4 个进程集成测试、9 个前端测试通过；格式、Clippy 和 release 构建通过。新增进程测试覆盖 IPv4/IPv6/域名形式的 SOCKS 回复、分片回复、256 KiB 二进制双向传输、无换行数据立即刷新、stdin 半关闭后完整接收响应、stdin 保持打开时远端 EOF 仍正常退出，以及策略拒绝、畸形/截断回复和握手超时。模拟目标使用不可解析的 `.invalid` 域名，确认客户端发送域名而非本地解析。
+
+真实验证使用内置 connect 命令完成现有 GitHub SSH 密钥认证，以及授权私有仓库的 ls-remote 和浅克隆；临时数据随后清理。Smoke 脚本改用同一客户端命令，完成独立 TLS 网关的公开仓库 clone/fetch、GitHub API 查询、SSH 认证、仓库拒绝及正常退出，不再依赖 nc 或 connect-proxy。没有修改客户端全局 Git/SSH 配置。
+
+控制台接入命令同步使用 `gh-proxy connect`。README 提供 HTTP(S)、SSH 原生地址、SSH 别名、单次命令、仓库配置及 SSH 443 方案，并说明各方案的影响范围和客户端二进制要求。

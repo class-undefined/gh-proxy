@@ -117,15 +117,15 @@ git config --global url."https://git-gateway.example/".insteadOf https://github.
 
 ## SSH 客户端
 
-客户端安装 `connect-proxy`，配置：
+客户端安装 `gh-proxy` 二进制，配置：
 
 ```sshconfig
 Host github.com
     User git
-    ProxyCommand connect-proxy -S git-gateway.example:1080 %h %p
+    ProxyCommand gh-proxy connect --socks git-gateway.example:1080 %h %p
 ```
 
-然后继续使用 `git@github.com:owner/repo.git`。使用 OpenBSD nc 时可替换为 `ProxyCommand nc -X 5 -x git-gateway.example:1080 %h %p`。
+然后继续使用 `git@github.com:owner/repo.git`。客户端无需网关配置文件，不依赖 connect-proxy 或 nc。别名、单次命令、仓库配置等方案见 [README](../README.md#客户端使用方案)。
 
 若使用 SSH 443 入口，设置 `HostName ssh.github.com`、`Port 443`，并在网关允许该目标。不要禁用 SSH 主机密钥校验。SOCKS 入口只支持域名形式的 CONNECT，不支持 IP 字面量、BIND、UDP、任意端口或任意域名。
 
@@ -226,4 +226,4 @@ NO_PROXY=localhost,127.0.0.1 \
 python3 scripts/smoke.py --proxy-env --github-auth --ssh-auth
 ```
 
-Smoke 测试生成临时证书并验证 HTTPS，不修改系统信任，使用公开仓库 clone/fetch 和 API 查询，不推送代码、不创建 Release。`--ssh-auth` 需要已安装 OpenBSD nc、有可用的现有 SSH 身份及已信任的 GitHub 主机密钥，不自动接受未知主机密钥。
+Smoke 测试生成临时证书并验证 HTTPS，不修改系统信任，使用公开仓库 clone/fetch 和 API 查询，不推送代码、不创建 Release。`--ssh-auth` 使用本项目内置的 `connect` 命令，需要有可用的现有 SSH 身份及已信任的 GitHub 主机密钥，不自动接受未知主机密钥。

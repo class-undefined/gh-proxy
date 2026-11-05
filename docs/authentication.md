@@ -43,15 +43,15 @@ git config --global --unset-all credential."https://git-gateway.example".helper
 
 ## SSH
 
-客户端保留自己的私钥、ssh-agent 和 GitHub 主机密钥校验。以 OpenBSD nc 为例，在 `~/.ssh/config` 配置：
+客户端保留自己的私钥、ssh-agent 和 GitHub 主机密钥校验。客户端安装 `gh-proxy` 后，在 `~/.ssh/config` 配置：
 
 ```sshconfig
 Host github.com
     User git
-    ProxyCommand nc -X 5 -x 127.0.0.1:1080 %h %p
+    ProxyCommand gh-proxy connect --socks 127.0.0.1:1080 %h %p
 ```
 
-也可使用 `connect-proxy -S 127.0.0.1:1080 %h %p`。服务端必须配置可用的 `ALL_PROXY`（例如 `socks5h://127.0.0.1:7890`）或明确允许直连，并允许相应 SSH 目标。
+此命令只做客户端 SOCKS 隧道，不需要管理密钥或本地网关配置文件。多种接入方案见 [README](../README.md#客户端使用方案)。服务端必须配置可用的 `ALL_PROXY`（例如 `socks5h://127.0.0.1:7890`）或明确允许直连，并允许相应 SSH 目标。
 
 ```sh
 ssh -T git@github.com
