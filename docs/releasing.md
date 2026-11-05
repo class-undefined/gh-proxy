@@ -21,7 +21,7 @@
 
 推送 `v<版本>` tag 自动触发 Release workflow。tag 必须与该提交 `Cargo.toml` 中的 package.version 完全一致；例如当前 `0.1.0` 对应 `v0.1.0`。该 workflow 自己执行全部 CI 检查，无需依赖另一次分支 CI 的完成状态。
 
-首次发布现有版本：
+项目已通过以下命令发布 [v0.1.0](https://github.com/class-undefined/gh-proxy/releases/tag/v0.1.0)，并完成六平台产物及校验和验证。以下为首次 tag 触发示例；该 tag 已存在，后续发布请按下一段递增版本号：
 
 ```sh
 git tag -a v0.1.0 -m "Release v0.1.0"

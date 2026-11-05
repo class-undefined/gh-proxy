@@ -1,10 +1,10 @@
 # 验证记录
 
-日期：2026-11-05。环境：macOS ARM64，Rust/Cargo 1.94.1。所有“通过”仅指下列范围，不代替目标部署环境验收。
+日期：2026-11-05。初始验证环境为 macOS ARM64，Rust/Cargo 1.94.1；后续六平台 CI 与版本发布记录见文末。所有“通过”仅指记录中的范围，不代替目标部署环境验收。
 
 ## 本地自动化
 
-`cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked`、`cargo build --locked --release` 均通过，当前共 23 个测试。
+`cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked`、`cargo build --locked --release` 均通过，首轮实现共 23 个测试；后续新增测试数量见对应记录。
 
 | 覆盖范围 | 验证结果 |
 | --- | --- |
@@ -53,7 +53,7 @@ python3 scripts/smoke.py --proxy-env --github-auth --ssh-auth
 - 目标服务器、真实客户端 CIDR、TLS 域名与证书、服务用户和上游地址。
 - 目标 Linux 环境的 systemd 启动/重启、证书更新及外部客户端访问。
 - 指定测试仓库中的真实 HTTP/SSH push、tag 推送及 pull。
-- 指定测试仓库中的真实 Release 创建、更新和附件上传/下载；本次仅模拟这些修改操作。
+- 经网关 API 在指定测试仓库执行真实 Release 创建、更新和附件上传/下载；CI 发布直接使用 GitHub API，不代替网关 API 写入验收。
 - 目标环境的上游认证、故障注入、不同 DNS 模式及容量测试。
 
 ## 当前范围与限制
@@ -126,3 +126,14 @@ Rust 31 个测试、前端 9 个测试、格式、Clippy 和 release 构建通�
 真实验证使用内置 connect 命令完成现有 GitHub SSH 密钥认证，以及授权私有仓库的 ls-remote 和浅克隆；临时数据随后清理。Smoke 脚本改用同一客户端命令，完成独立 TLS 网关的公开仓库 clone/fetch、GitHub API 查询、SSH 认证、仓库拒绝及正常退出，不再依赖 nc 或 connect-proxy。没有修改客户端全局 Git/SSH 配置。
 
 控制台接入命令同步使用 `gh-proxy connect`。README 提供 HTTP(S)、SSH 原生地址、SSH 别名、单次命令、仓库配置及 SSH 443 方案，并说明各方案的影响范围和客户端二进制要求。
+
+
+## 2026-11-05：多平台 CI 与自动发布
+
+[六平台 CI](https://github.com/class-undefined/gh-proxy/actions/runs/41972353955) 的 quality 和全部 native binary jobs 通过。Linux/macOS 各运行 43 个 Rust 测试，Windows 各运行 42 个（Unix 专用凭据进程测试除外）；质量检查包含格式、Clippy、9 个前端测试、3 个发布脚本测试与 actionlint 1.7.12。每个目标均完成锁定依赖的 release 构建、原生可执行文件版本/帮助检查及二进制打包。
+
+初次 Windows 运行发现测试 fixture 在对端读取 SOCKS 拒绝回复前关闭带有未读数据的 socket，产生 ConnectionReset。为测试双方添加回复观察同步后，Windows x86_64 和 ARM64 均通过；生产访问控制和 SSH 透明转发逻辑未修改。
+
+推送与 Cargo.toml 一致的 v0.1.0 tag 后，[Release workflow](https://github.com/class-undefined/gh-proxy/actions/runs/41973208767) 全部通过，包括版本校验、复用六平台 CI、产物汇总、SHA256SUMS 生成、草稿上传清单核对和公开发布。[v0.1.0](https://github.com/class-undefined/gh-proxy/releases/tag/v0.1.0) 为正式版本，包含六个压缩包及一个校验文件。
+
+发布后重新下载全部七个资产，逐一验证 SHA-256、压缩包仅含二进制，以及 ELF、Mach-O、PE 头中的 x86_64 / ARM64 架构标识。另执行下载后的 macOS ARM64 二进制，版本为 gh-proxy 0.1.0，connect --help 正常。临时下载目录随后清理。运行配置与凭据未加入提交或发布包。
