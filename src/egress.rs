@@ -13,6 +13,8 @@ use url::Url;
 // Never derive Debug: proxy URLs can contain passwords.
 #[derive(Clone)]
 pub struct Egress {
+    #[cfg(test)]
+    pub(crate) test_root: Option<reqwest::Certificate>,
     pub(crate) all: Option<Url>,
     http: Option<Url>,
     https: Option<Url>,
@@ -96,13 +98,17 @@ impl Egress {
                             .ok_or_else(|| anyhow::anyhow!("invalid NO_PROXY host"))?
                             .trim_matches(['[', ']'])
                             .to_ascii_lowercase(),
-                        port: u.port(),
+                        port: stripped
+                            .rsplit_once(':')
+                            .and_then(|(_, p)| p.parse::<u16>().ok()),
                     }
                 };
                 no_proxy.push(parsed);
             }
         }
         Ok(Self {
+            #[cfg(test)]
+            test_root: None,
             http: proxy(variable(&get, "HTTP_PROXY"), false)?,
             https: proxy(variable(&get, "HTTPS_PROXY"), false)?,
             all: proxy(variable(&get, "ALL_PROXY"), true)?,
@@ -148,7 +154,13 @@ impl Egress {
                     .map_err(|_| anyhow::anyhow!("invalid HTTP proxy configuration"))?,
             );
             // Upstream proxy may be on loopback/private networks. Its DNS is trusted.
-            builder = builder.dns_resolver(Arc::new(SystemResolver));
+            builder = builder.dns_resolver(Arc::new(ProxyResolver {
+                host: proxy.host_str().unwrap_or("").to_string(),
+            }));
+        }
+        #[cfg(test)]
+        if let Some(root) = &self.test_root {
+            builder = builder.add_root_certificate(root.clone());
         }
         builder
             .build()
@@ -174,6 +186,8 @@ pub fn public_ip(ip: IpAddr) -> bool {
                 || v.is_documentation()
                 || v.octets()[0] == 0
                 || v.octets()[0] >= 240
+                || (v.octets()[0] == 192 && v.octets()[1] == 0 && v.octets()[2] == 0)
+                || (v.octets()[0] == 192 && v.octets()[1] == 88 && v.octets()[2] == 99)
                 || (v.octets()[0] == 100 && (64..=127).contains(&v.octets()[1]))
                 || (v.octets()[0] == 198 && matches!(v.octets()[1], 18 | 19)))
         }
@@ -187,7 +201,9 @@ pub fn public_ip(ip: IpAddr) -> bool {
     }
 }
 struct PublicResolver;
-struct SystemResolver;
+struct ProxyResolver {
+    host: String,
+}
 async fn resolve(
     name: Name,
     public_only: bool,
@@ -203,9 +219,10 @@ impl Resolve for PublicResolver {
         Box::pin(resolve(name, true))
     }
 }
-impl Resolve for SystemResolver {
+impl Resolve for ProxyResolver {
     fn resolve(&self, name: Name) -> Resolving {
-        Box::pin(resolve(name, false))
+        let public_only = name.as_str() != self.host;
+        Box::pin(resolve(name, public_only))
     }
 }
 
