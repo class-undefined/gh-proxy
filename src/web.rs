@@ -228,6 +228,10 @@ pub(crate) async fn manage(
                 Err(SaveError::Conflict) => {
                     error(StatusCode::CONFLICT, "配置已被修改，请重新加载后再保存")
                 }
+                Err(SaveError::ExternalChange) => error(
+                    StatusCode::CONFLICT,
+                    "配置文件已在服务外修改，请重启服务后再编辑",
+                ),
                 Err(SaveError::Invalid(message)) => error(StatusCode::BAD_REQUEST, &message),
                 Err(SaveError::Storage) => error(
                     StatusCode::INTERNAL_SERVER_ERROR,

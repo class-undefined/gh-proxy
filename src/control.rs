@@ -212,7 +212,7 @@ impl Control {
         let output = bytes.clone();
         tokio::task::spawn_blocking(move || {
             if std::fs::read(&path).map_err(|_| SaveError::Storage)? != expected {
-                return Err(SaveError::Conflict);
+                return Err(SaveError::ExternalChange);
             }
             atomic_write(&path, &output).map_err(|_| SaveError::Storage)
         })
@@ -233,6 +233,7 @@ impl Control {
 pub enum SaveError {
     Disabled,
     Conflict,
+    ExternalChange,
     Invalid(String),
     Storage,
 }
@@ -378,7 +379,7 @@ mod tests {
         std::fs::write(dir.path().join("config.toml"), "# external edit").unwrap();
         assert!(matches!(
             c.save(u, "127.0.0.1".parse().unwrap()).await,
-            Err(SaveError::Conflict)
+            Err(SaveError::ExternalChange)
         ));
     }
     #[tokio::test]
