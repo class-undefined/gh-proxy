@@ -1,0 +1,76 @@
+# 验证记录
+
+日期：2026-11-05。环境：macOS ARM64，Rust/Cargo 1.94.1。所有“通过”仅指下列范围，不代替目标部署环境验收。
+
+## 本地自动化
+
+`cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked`、`cargo build --locked --release` 均通过，当前共 23 个测试。
+
+| 覆盖范围 | 验证结果 |
+| --- | --- |
+| 配置校验 | 示例可加载，非安全监听、非法仓库拒绝，默认拒绝直连 |
+| 代理变量 | 大小写、空值、按协议隔离、NO_PROXY 域名边界、默认端口与 IPv6 |
+| HTTP 代理 | 本地代理实际收到 absolute-form HTTP 请求 |
+| HTTPS 代理 | 本地 CONNECT 隧道及 TLS 上游完成 Git/API/附件转发 |
+| 代理失效 | 即使 direct=true，已选代理失效仍报错，无直连回退 |
+| SSH | SOCKS 握手、远端解析、SSH 字节透传、来源和目标拒绝、仅允许 CONNECT |
+| 本地 DNS | SOCKS 本地解析的保留地址拒绝，远程解析发送域名 |
+| Git 策略 | 读取允许、只读拒绝服务发现与 RPC 写入、未知仓库与混淆路径拒绝 |
+| HTTP/2 | 正常伪头请求执行路径策略，HTTP/1 绝对代理请求拒绝 |
+| Release 策略 | 查询、创建、更新、上传、下载、删除分别授权 |
+| API 与附件 | 模拟 HTTPS 上游创建/更新，2 MiB 上传，10 MiB 下载，Git RPC 双向数据保持一致 |
+| 重定向 | 拒绝未知域名、错误端口/协议、跨仓库目标，跨域附件下载不携带认证头 |
+| 响应映射 | API URL、上传模板、浏览器下载 URL 改写，不改写用户正文 |
+| 日志与错误 | 代理解析错误不包含凭据；请求头过滤代理认证和逐跳字段 |
+
+Release 模拟测试在本地自签 HTTPS 上游运行，通过测试专用信任根校验证书；该信任根注入代码仅在 `cfg(test)` 中编译，生产构建不包含测试信任根。
+
+## 真实 GitHub 只读验证
+
+命令：
+
+```sh
+cargo build --locked
+HTTPS_PROXY=http://127.0.0.1:7890 \
+ALL_PROXY=socks5h://127.0.0.1:7890 \
+NO_PROXY=localhost,127.0.0.1 \
+python3 scripts/smoke.py --proxy-env --github-auth --ssh-auth
+```
+
+通过项目：
+
+- 临时原生 TLS 网关启动、HTTPS 证书校验、就绪检查。
+- 未授权仓库请求返回 403。
+- 经网关查询本仓库 Release API，使用现有 gh CLI Token 完成认证；Token 只在内存使用，不写入配置。
+- 经网关 HTTPS clone、fetch 本仓库。
+- 经 SOCKS 获取 GitHub SSH greeting；客户端现有 SSH 身份由 GitHub 成功认证，保留主机密钥检查。
+- SIGTERM 正常退出；日志不含测试使用的 Token。
+
+本机 DNS 将 GitHub 解析为 Fake-IP 保留地址，直连测试被网关按预期拒绝；上述通过结果使用显式代理。匿名 API 请求在当前上游出口触发 GitHub 限流，因此采用已授权身份执行只读查询，没有发布、推送或创建远端业务数据。
+
+## 仍待实际部署验收
+
+- 目标服务器、真实客户端 CIDR、TLS 域名与证书、服务用户和上游地址。
+- 目标 Linux 环境的 systemd 启动/重启、证书更新及外部客户端访问。
+- 指定测试仓库中的真实 HTTP/SSH push、tag 推送及 pull。
+- 指定测试仓库中的真实 Release 创建、更新和附件上传/下载；本次仅模拟这些修改操作。
+- 目标环境的上游认证、故障注入、不同 DNS 模式及容量测试。
+
+## 当前范围与限制
+
+- 首期只有 GitHub 适配器，固定 Git、API、上传及附件目标，不提供任意反向代理或通用 SOCKS。
+- 仅支持 Git Smart HTTP，不提供 Git LFS、dumb HTTP、任意平台 API 或 GitHub 网页代理。
+- SSH 不做仓库或读写过滤，按文档保持远端身份认证。
+- URI 严格规范化；首期不支持 tag 或附件 URL 中含编码斜杠的路径。
+- API 元数据最大 8 MiB，附件与 Git 数据流式传输；大文件需要按网络带宽调整请求/会话时长。
+- HTTP 请求并发和 SSH 会话并发分别限额。HTTP 请求在转发容量耗尽时返回通用 502。
+- 就绪状态仅表示配置上具备路由，不执行网络探测。配置、代理环境和证书变更需重启。
+- 来源按 TCP 对端判断；反向代理后的原始客户端 ACL 必须在反向代理执行。
+
+## 接口依据
+
+实现使用 Tokio 异步 I/O、Axum 0.8、reqwest 0.12、rustls 与 axum-server；依赖精确解析结果记录在 Cargo.lock。
+
+GitHub Release 下载的二进制 API 既可能直接返回内容，也可能重定向，网关覆盖两种响应，并保持仓库授权上下文。接口依据：[GitHub Release assets](https://docs.github.com/en/rest/releases/assets)、[GitHub Releases](https://docs.github.com/en/rest/releases/releases)。
+
+SSH 443 入口使用 `ssh.github.com:443`，按目标逐项授权。依据：[GitHub SSH over HTTPS port](https://docs.github.com/en/authentication/troubleshooting-ssh/using-ssh-over-the-https-port)。

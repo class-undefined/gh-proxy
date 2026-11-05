@@ -1,27 +1,51 @@
 # gh-proxy
 
-面向内网用户的 Git 访问网关，计划使用 **Rust** 实现，统一提供 Git HTTP(S)、SSH 透明转发和平台 API 访问，首期支持 GitHub。
+使用 **Rust** 实现的 Git 访问网关，首期支持 GitHub：Git HTTP(S)、SSH 透明转发、Release API 与附件传输，共用来源策略和显式出站代理配置。
 
-## 当前状态
+## 功能
 
-本仓库目前完成需求与方案文档初始化，尚未实现可运行的网关。本次不生成应用代码或绑定框架及依赖版本。
+- Git Smart HTTP：保留 `/owner/repo.git`，按仓库白名单控制读取与写入，覆盖 clone、fetch、pull、push 和 tag 推送。
+- SSH：受限 SOCKS5 CONNECT，保留端到端 SSH 身份认证，限制客户端、GitHub 目标及端口。
+- Release：按仓库及操作控制查询、创建、更新、删除、上传和下载，重写 API 链接并逐跳限制附件重定向。
+- 出站：支持大小写代理环境变量及 NO_PROXY，默认拒绝无代理直连，代理故障不回退直连。
+- 服务：原生 TLS、配置检查、存活/就绪端点、脱敏结构化日志、优雅退出和 systemd 配置。
 
-## 设计目标
+SSH 加密内容对网关不可见。SSH 仓库和读写权限由 GitHub 控制，HTTP 仓库白名单不适用于 SSH。
 
-- Git HTTP(S)：保留 `/owner/repo.git` 路径，按客户端、平台、仓库和读写操作实施策略。
-- SSH：通过受限 SOCKS 入口透明转发，由 Git 平台验证客户端现有公钥。
-- 平台 API：支持 GitHub Release 查询、创建、更新及附件传输，并限制请求和重定向目标。
-- 上游连接：支持标准代理环境变量，代理失败时不静默回退直连。
-- 运维：支持服务管理、健康检查和脱敏日志。
+## 快速开始
 
-SSH 透明转发无法检查加密连接中的仓库路径。SSH 仓库权限由远端平台控制，网关仅限制客户端来源、目标平台与端口；此取舍在实施前需要确认。
+需要 `rustup`，仓库固定 Rust 1.94.1：
 
-## 文档
+```sh
+cargo build --locked --release
+cp config/example.toml config.local.toml
+HTTPS_PROXY=http://127.0.0.1:7890 \
+ALL_PROXY=socks5h://127.0.0.1:7891 \
+NO_PROXY=localhost,127.0.0.1 \
+./target/release/gh-proxy --config config.local.toml
+```
 
+代理地址需要按实际环境修改。示例仅允许本机与本仓库的只读访问，Release 允许查询和下载。未配置可用上游时出站拒绝；明确需要直连时设置 `direct=true`。生产客户端 CIDR、仓库权限、域名和证书均需自行配置。
+
+```sh
+git clone http://127.0.0.1:8080/class-undefined/gh-proxy.git
+curl --fail http://127.0.0.1:8080/health/ready
+```
+
+明文只允许绑定 loopback；携带凭据应使用 HTTPS。部署、TLS、SSH 客户端和 Release 命令见运行文档。
+
+## 文档与验证
+
+- [构建、配置、安装与运行](docs/operations.md)
 - [需求规格](docs/requirements.md)
 - [架构与安全边界](docs/architecture.md)
 - [实施计划与验收清单](docs/implementation-plan.md)
+- [验证记录与已知限制](docs/verification.md)
 
-## 协作约定
+```sh
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+```
 
-每完成一项独立工作即创建一次原子提交，使需求、实现及验证结果可分别审阅和追踪。后续按实施清单逐项推进。
+已完成本地自动化测试及真实 GitHub 只读连通性验证。实际服务器部署、真实仓库写入和 Release 发布仍需在指定环境验收。每完成一项独立工作创建一次原子提交。
